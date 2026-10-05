@@ -34,8 +34,6 @@ jobs:
           GITLEAKS_CONFIG: .gitleaks.toml
 
   plugin-size:
-    # 公開するまで止めておく
-    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
