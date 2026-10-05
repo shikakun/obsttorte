@@ -1,0 +1,21 @@
+{
+  "name": "obsttorte-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check . && pnpm --filter @obsttorte/plugin-lint lint && node scripts/lint-plugin.mjs",
+    "format": "biome check --write .",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "build": "pnpm -r --if-present build",
+    "version-packages": "changeset version && node scripts/sync-plugin-manifest.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@changesets/cli": "3.0.3",
+    "typescript": "7.0.2"
+  }
+}

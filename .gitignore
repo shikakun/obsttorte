@@ -1,0 +1,12 @@
+node_modules/
+dist/
+bin/
+packages/cli/migrations/
+.wrangler/
+.dev.vars
+.vite/
+*.tsbuildinfo
+coverage/
+.DS_Store
+packages/cli/README.md
+packages/cli/LICENSE

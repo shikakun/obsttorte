@@ -1,0 +1,14 @@
+{
+  "name": "@obsttorte/plugin-lint",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "lint": "cd ../.. && eslint -c eslint.config.mjs packages/plugin"
+  },
+  "devDependencies": {
+    "eslint": "9.39.1",
+    "eslint-plugin-obsidianmd": "0.4.2",
+    "typescript": "5.4.5"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@obsttorte/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@obsttorte/shared": "workspace:*",
+    "hono": "4.13.9"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.62.2",
+    "@cloudflare/vitest-plugin": "1.3.3",
+    "@cloudflare/workers-types": "5.20260926.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "4.1.11",
+    "wrangler": "4.144.0"
+  }
+}

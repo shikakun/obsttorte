@@ -1,0 +1,14 @@
+export type { ApiFailureKind, HttpResult, Transport } from "./api-client";
+export { ApiClient, ApiRequestError, readFullIndex } from "./api-client";
+export { newerConflictSide } from "./conflict-choice";
+export { diffLines } from "./diff";
+export type { JournalEntry } from "./journal";
+export type { IndexStore, JournalStore, LocalIndexEntry, StashedRemote } from "./memory";
+export { detectJsonStyle, mergeJsonWithPreference, mergeText, stringifyJsonLike } from "./merge";
+export type { SyncPlan } from "./plan";
+export { exportPlan } from "./plan";
+export type { SnapshotDelta } from "./snapshot-diff";
+export { diffSnapshot } from "./snapshot-diff";
+export type { InitialStrategy, Rejection, SyncFailure, SyncRunResult } from "./sync";
+export { runSync } from "./sync";
+export type { LocalFileStat, VaultPort } from "./vault-port";

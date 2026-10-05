@@ -1,0 +1,135 @@
+export type DiffPart = { type: "equal" | "insert" | "delete"; text: string };
+
+export type DiffLine = {
+  type: "equal" | "insert" | "delete";
+  text: string;
+  words: DiffPart[];
+};
+
+export type DiffHunk = {
+  beforeStart: number;
+  afterStart: number;
+  lines: DiffLine[];
+};
+
+const segmenter = new Intl.Segmenter("ja", { granularity: "word" });
+
+function segmentWords(text: string): string[] {
+  return [...segmenter.segment(text)].map((part) => part.segment);
+}
+
+type Op = { type: DiffPart["type"]; text: string };
+
+function align(before: string[], after: string[]): Op[] {
+  if (before.length * after.length > 250_000) {
+    return [
+      ...before.map((text) => ({ type: "delete" as const, text })),
+      ...after.map((text) => ({ type: "insert" as const, text })),
+    ];
+  }
+  const scores: number[][] = Array.from({ length: before.length + 1 }, () =>
+    Array<number>(after.length + 1).fill(0),
+  );
+  for (let row = before.length - 1; row >= 0; row -= 1) {
+    for (let column = after.length - 1; column >= 0; column -= 1) {
+      const current = scores[row];
+      const next = scores[row + 1];
+      if (!current || !next) continue;
+      current[column] =
+        before[row] === after[column]
+          ? (next[column + 1] ?? 0) + 1
+          : Math.max(next[column] ?? 0, current[column + 1] ?? 0);
+    }
+  }
+  const ops: Op[] = [];
+  let row = 0;
+  let column = 0;
+  while (row < before.length && column < after.length) {
+    if (before[row] === after[column]) {
+      ops.push({ type: "equal", text: before[row] ?? "" });
+      row += 1;
+      column += 1;
+    } else if ((scores[row + 1]?.[column] ?? 0) >= (scores[row]?.[column + 1] ?? 0)) {
+      ops.push({ type: "delete", text: before[row] ?? "" });
+      row += 1;
+    } else {
+      ops.push({ type: "insert", text: after[column] ?? "" });
+      column += 1;
+    }
+  }
+  while (row < before.length) ops.push({ type: "delete", text: before[row++] ?? "" });
+  while (column < after.length) ops.push({ type: "insert", text: after[column++] ?? "" });
+  return ops;
+}
+
+function diffTokens(before: string[], after: string[]): DiffPart[] {
+  const ops = align(before, after);
+  const parts: DiffPart[] = [];
+  for (const op of ops) {
+    const last = parts.at(-1);
+    if (last && last.type === op.type) last.text += op.text;
+    else parts.push({ type: op.type, text: op.text });
+  }
+  return parts;
+}
+
+function splitLines(text: string): string[] {
+  if (text.length === 0) return [];
+  const lines = text.split("\n");
+  if (text.endsWith("\n")) lines.pop();
+  return lines;
+}
+
+export function diffLines(before: string, after: string): DiffHunk[] {
+  const beforeLines = splitLines(before);
+  const afterLines = splitLines(after);
+  const ops = align(beforeLines, afterLines);
+  const hunks: DiffHunk[] = [];
+  let beforeIndex = 0;
+  let afterIndex = 0;
+  let current: DiffHunk | null = null;
+  let equalRun = 0;
+  const flush = () => {
+    if (current?.lines.some((line) => line.type !== "equal")) hunks.push(current);
+    current = null;
+    equalRun = 0;
+  };
+  for (const op of ops) {
+    if (op.type === "equal") {
+      equalRun += 1;
+      if (current) {
+        current.lines.push({
+          type: "equal",
+          text: op.text,
+          words: [{ type: "equal", text: op.text }],
+        });
+        if (equalRun > 3) flush();
+      }
+      beforeIndex += 1;
+      afterIndex += 1;
+      continue;
+    }
+    equalRun = 0;
+    if (!current) current = { beforeStart: beforeIndex, afterStart: afterIndex, lines: [] };
+    current.lines.push({
+      type: op.type,
+      text: op.text,
+      words: [{ type: op.type, text: op.text }],
+    });
+    if (op.type === "delete") beforeIndex += 1;
+    else afterIndex += 1;
+  }
+  flush();
+  for (const hunk of hunks) {
+    for (let index = 0; index < hunk.lines.length - 1; index += 1) {
+      const deleted = hunk.lines[index];
+      const inserted = hunk.lines[index + 1];
+      if (!deleted || !inserted || deleted.type !== "delete" || inserted.type !== "insert")
+        continue;
+      const words = diffTokens(segmentWords(deleted.text), segmentWords(inserted.text));
+      deleted.words = words.filter((part) => part.type !== "insert");
+      inserted.words = words.filter((part) => part.type !== "delete");
+    }
+  }
+  return hunks;
+}

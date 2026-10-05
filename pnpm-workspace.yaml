@@ -1,0 +1,19 @@
+packages:
+  - "packages/*"
+minimumReleaseAge: 10080
+strictDepBuilds: true
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+allowBuilds:
+  esbuild: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - wrangler
+  - miniflare
+  - workerd
+  - "@cloudflare/vite-plugin"
+  - "@cloudflare/vitest-plugin"
+overrides:
+  # 0.9.3 and 6.3.1 were published without provenance after attested releases.
+  synckit: 0.11.13
+  semver@6: 7.8.5

@@ -1,0 +1,14 @@
+title = "Obsttorte"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "obsttorte-device-token"
+description = "Obsttorte device token"
+regex = '''obsttorte_[a-z2-7]{52}'''
+
+[[rules]]
+id = "cloudflare-access-client-secret"
+description = "Cloudflare Access Client Secret"
+regex = '''cfast_[A-Za-z0-9_-]{20,}'''

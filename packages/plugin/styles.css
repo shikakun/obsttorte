@@ -1,0 +1,72 @@
+.obsttorte-status {
+  color: var(--text-muted);
+}
+
+.obsttorte-status.is-warning {
+  color: var(--text-warning);
+}
+
+.obsttorte-status.is-error {
+  color: var(--text-error);
+}
+
+.obsttorte-view {
+  padding: var(--size-4-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.obsttorte-view fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.obsttorte-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+}
+
+.obsttorte-emphasis {
+  background: var(--background-modifier-error);
+}
+
+.obsttorte-added {
+  color: var(--color-green);
+  text-decoration: underline;
+}
+
+.obsttorte-removed {
+  color: var(--color-red);
+  text-decoration: line-through;
+}
+
+.obsttorte-fixed-exclusions {
+  white-space: pre-wrap;
+}
+
+.obsttorte-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+}
+
+.obsttorte-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.obsttorte-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+}
+
+.obsttorte-muted {
+  color: var(--text-muted);
+}

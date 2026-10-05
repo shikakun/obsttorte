@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "minimumReleaseAge": "7 days",
+  "packageRules": [
+    {
+      "groupName": "cloudflare",
+      "matchPackageNames": ["wrangler", "@cloudflare/vite-plugin", "@cloudflare/vitest-plugin"]
+    },
+    { "matchManagers": ["github-actions"], "pinDigests": true }
+  ]
+}

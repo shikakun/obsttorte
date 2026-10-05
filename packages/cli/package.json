@@ -1,0 +1,51 @@
+{
+  "name": "obsttorte",
+  "version": "0.1.0",
+  "description": "Set up and update the Obsttorte server on your own Cloudflare account",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shikakun/obsttorte.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/shikakun/obsttorte#readme",
+  "keywords": [
+    "obsidian",
+    "sync",
+    "cloudflare-workers"
+  ],
+  "type": "module",
+  "bin": {
+    "obsttorte": "./bin/obsttorte.mjs"
+  },
+  "files": [
+    "bin/obsttorte.mjs",
+    "dist/obsttorte",
+    "migrations",
+    "!dist/obsttorte/.dev.vars"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "wrangler": "4.144.0"
+  },
+  "scripts": {
+    "build": "vite build && node scripts/copy-worker.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "node scripts/prepare-package.mjs"
+  },
+  "devDependencies": {
+    "@obsttorte/server": "workspace:*",
+    "@obsttorte/shared": "workspace:*",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "4.1.11",
+    "@types/node": "24.19.0"
+  }
+}

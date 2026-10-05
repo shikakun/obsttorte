@@ -1,0 +1,25 @@
+{
+  "name": "@obsttorte/plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sync a vault across your own devices through a server on your own Cloudflare account.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "version": "node ../../scripts/sync-plugin-manifest.mjs"
+  },
+  "dependencies": {
+    "@obsttorte/engine": "workspace:*",
+    "@obsttorte/shared": "workspace:*",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "obsidian": "1.13.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.1"
+  }
+}

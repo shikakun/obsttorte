@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ESLintの型情報に使うTypeScript 5.4はtargetのES2023を解釈できない
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}
