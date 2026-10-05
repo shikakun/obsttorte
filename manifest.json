@@ -1,7 +1,7 @@
 {
   "id": "obsttorte",
   "name": "Obsttorte",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.13.0",
   "description": "Sync a vault across your own devices through a server on your own Cloudflare account.",
   "author": "shikakun",
