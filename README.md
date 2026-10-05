@@ -36,7 +36,11 @@ npx obsttorte@latest setup --name obsttorte-work
 
 ### Plugin
 
-(The plugin is being prepared for listing in Obsidian’s Community plugins. We will announce it once it is available.)
+Install [Torte](https://community.obsidian.md/plugins/obsttorte) from Obsidian’s Community plugins.
+
+1. In Obsidian, open **Settings → Community plugins**, select **Browse**, and search for “Torte”.
+2. Install Torte and enable it.
+3. In the Torte settings, enter the server URL, Access Client ID, Access Client Secret, and device token.
 
 ### Device tokens
 

@@ -36,7 +36,11 @@ npx obsttorte@latest setup --name obsttorte-work
 
 ### プラグイン
 
-（現在、Obsidianの「コミュニティプラグイン」に掲載できるように準備中です。配信できしだいお知らせします。）
+Obsidianのコミュニティプラグインから「[Torte](https://community.obsidian.md/plugins/obsttorte)」をインストールしてください。
+
+1. Obsidianの「設定」→「コミュニティプラグイン」で「閲覧」を選び、「Torte」を検索します。
+2. Torteをインストールして、有効化します。
+3. Torteの設定画面から、サーバーURL、Access Client ID、Access Client Secret、デバイストークンを入力してください。
 
 ### デバイストークン
 
