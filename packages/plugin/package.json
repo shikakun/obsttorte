@@ -1,6 +1,6 @@
 {
   "name": "@obsttorte/plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Sync a vault across your own devices through a server on your own Cloudflare account.",
   "type": "module",
