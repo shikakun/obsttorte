@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/shikakun/obsttorte/main/public/icon-1024.png" alt="" width="192" height="192">
+
 # Obsttorte
 
 [English](./README.md)
