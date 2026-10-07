@@ -1,5 +1,17 @@
 .obsttorte-status {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
   color: var(--text-muted);
+}
+
+.obsttorte-status-icon {
+  display: flex;
+}
+
+.obsttorte-status-icon svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
 }
 
 .obsttorte-status.is-warning {
@@ -115,4 +127,43 @@
 
 .obsttorte-muted {
   color: var(--text-muted);
+}
+
+.obsttorte-status-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.obsttorte-status-summary p {
+  margin: 0;
+}
+
+.obsttorte-headline {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+}
+
+.obsttorte-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+}
+
+.obsttorte-tasks li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+
+.obsttorte-tasks span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

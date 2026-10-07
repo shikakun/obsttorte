@@ -7,7 +7,15 @@ import {
 } from "@obsttorte/engine";
 import type { ConflictRecord, LogEntry, SnapshotListItem } from "@obsttorte/shared";
 import { ItemView, Notice, setTooltip, type WorkspaceLeaf } from "obsidian";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { QuarantineDetail, ResolveChoice } from "./actions";
 import { formatBytes, formatDateTime, label, t } from "./i18n";
@@ -15,6 +23,7 @@ import { describeFailure, failureOf } from "./problems";
 
 export const CONFLICT_VIEW_TYPE = "obsttorte-conflicts";
 export const QUARANTINE_VIEW_TYPE = "obsttorte-quarantine";
+export const STATUS_VIEW_TYPE = "obsttorte-status";
 export const SNAPSHOT_VIEW_TYPE = "obsttorte-snapshots";
 export const LOG_VIEW_TYPE = "obsttorte-sync-log";
 
@@ -111,6 +120,7 @@ function ActionButton({
   text,
   disabled,
   warning,
+  cta,
   onClick,
 }: {
   label: string;
@@ -118,12 +128,13 @@ function ActionButton({
   disabled?: boolean;
   /** 取り消しにくい操作を確定するボタン */
   warning?: boolean;
+  cta?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className={warning ? "mod-warning" : undefined}
+      className={warning ? "mod-warning" : cta ? "mod-cta" : undefined}
       aria-label={text === undefined ? undefined : label}
       ref={text === undefined ? undefined : tooltip(label)}
       disabled={disabled}
@@ -316,78 +327,174 @@ function ConflictList({ actions }: { actions: ConflictActions }) {
 }
 
 export type QuarantineActions = {
-  paths: () => string[];
-  newPluginIds: () => string[];
   detail: (path: string) => Promise<QuarantineDetail>;
   /** 表示した sha256 がサーバーの現在の版と違えば承認せずに false を返す */
   approve: (path: string, sha256: string) => Promise<boolean>;
   reject: (path: string) => Promise<void>;
 };
 
-export class QuarantineView extends ReactView {
+export type StatusSnapshot = {
+  headline: string;
+  problem: string | null;
+  syncing: boolean;
+  paused: boolean;
+  conflicts: number;
+  quarantine: Array<{ path: string; newPlugin: boolean }>;
+  pluginData: number;
+  unsynced: number;
+  writeFailed: number;
+  reloadPending: boolean;
+};
+
+export type StatusActions = {
+  subscribe: SyncSignal;
+  snapshot: () => StatusSnapshot;
+  syncNow: () => void;
+  togglePause: () => void;
+  openConflicts: () => void;
+  openLog: () => void;
+  openSnapshots: () => void;
+  choosePluginData: () => void;
+  reload: () => void;
+  quarantine: QuarantineActions;
+};
+
+export class StatusView extends ReactView {
   constructor(
     leaf: WorkspaceLeaf,
     onSynced: SyncSignal,
-    private readonly actions: QuarantineActions,
+    private readonly actions: StatusActions,
   ) {
     super(leaf, onSynced);
   }
   getViewType(): string {
-    return QUARANTINE_VIEW_TYPE;
+    return STATUS_VIEW_TYPE;
   }
   getDisplayText(): string {
-    return t("quarantine.viewTitle");
+    return t("status.viewTitle");
   }
   getIcon(): string {
-    return "shield-alert";
+    return "refresh-cw";
   }
   protected content(): ReactNode {
-    return <QuarantineList actions={this.actions} />;
+    return <StatusPanel actions={this.actions} />;
   }
 }
 
-function QuarantineList({ actions }: { actions: QuarantineActions }) {
-  const [paths, setPaths] = useState(actions.paths());
-  useOnSynced(useCallback(() => setPaths(actions.paths()), [actions]));
-  const [selected, setSelected] = useState<string | null>(null);
-  const fresh = new Set(actions.newPluginIds());
-  if (selected) {
+type Task = { key: string; text: string; action: string; onClick: () => void };
+
+function StatusPanel({ actions }: { actions: StatusActions }) {
+  const status = useSyncExternalStore(actions.subscribe, actions.snapshot);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  if (reviewing) {
     return (
       <QuarantineDecision
-        path={selected}
-        actions={actions}
-        onBack={() => setSelected(null)}
-        onDecided={() => {
-          setSelected(null);
-          setPaths(actions.paths());
-        }}
+        path={reviewing}
+        actions={actions.quarantine}
+        onBack={() => setReviewing(null)}
+        onDecided={() => setReviewing(null)}
       />
     );
   }
-  if (paths.length === 0) {
-    return (
-      <section className="obsttorte-view" aria-label={t("quarantine.viewTitle")}>
-        <p>{t("quarantine.empty")}</p>
-      </section>
-    );
-  }
+  const tasks: Task[] = [
+    ...(status.conflicts > 0
+      ? [
+          {
+            key: "conflicts",
+            text: t("task.conflicts", { count: status.conflicts }),
+            action: t("task.open"),
+            onClick: actions.openConflicts,
+          },
+        ]
+      : []),
+    ...status.quarantine.map((item) => ({
+      key: `quarantine:${item.path}`,
+      text: item.newPlugin ? `${t("quarantine.newPlugin")} ${item.path}` : item.path,
+      action: t("task.review"),
+      onClick: () => setReviewing(item.path),
+    })),
+    ...(status.pluginData > 0
+      ? [
+          {
+            key: "plugin-data",
+            text: t("task.pluginData", { count: status.pluginData }),
+            action: t("task.choose"),
+            onClick: actions.choosePluginData,
+          },
+        ]
+      : []),
+    ...(status.unsynced > 0
+      ? [
+          {
+            key: "unsynced",
+            text: t("task.unsynced", { count: status.unsynced }),
+            action: t("task.openLog"),
+            onClick: actions.openLog,
+          },
+        ]
+      : []),
+    ...(status.writeFailed > 0
+      ? [
+          {
+            key: "write-failed",
+            text: t("task.writeFailed", { count: status.writeFailed }),
+            action: t("task.openLog"),
+            onClick: actions.openLog,
+          },
+        ]
+      : []),
+    ...(status.reloadPending
+      ? [
+          {
+            key: "reload",
+            text: t("task.reload"),
+            action: t("notice.reloadButton"),
+            onClick: actions.reload,
+          },
+        ]
+      : []),
+  ];
   return (
-    <ul className="obsttorte-view" aria-label={t("quarantine.viewTitle")}>
-      {paths.map((path) => {
-        const pluginId = /\/plugins\/([^/]+)\//.exec(path)?.[1] ?? "";
-        return (
-          <li
-            key={path}
-            className={fresh.has(pluginId) ? "obsttorte-row obsttorte-emphasis" : "obsttorte-row"}
-          >
-            <ActionButton
-              label={fresh.has(pluginId) ? `${t("quarantine.newPlugin")} ${path}` : path}
-              onClick={() => setSelected(path)}
-            />
-          </li>
-        );
-      })}
-    </ul>
+    <section className="obsttorte-view" aria-label={t("status.viewTitle")}>
+      <div className="obsttorte-status-summary">
+        <p className="obsttorte-headline" role="status">
+          {status.headline}
+        </p>
+        {status.problem ? <p role="alert">{status.problem}</p> : null}
+        <div className="obsttorte-actions">
+          {status.paused ? (
+            <ActionButton label={t("menu.resume")} cta onClick={actions.togglePause} />
+          ) : (
+            <>
+              <ActionButton
+                label={t("menu.syncNow")}
+                cta
+                disabled={status.syncing}
+                onClick={actions.syncNow}
+              />
+              <ActionButton label={t("menu.pause")} onClick={actions.togglePause} />
+            </>
+          )}
+        </div>
+      </div>
+      {tasks.length > 0 ? (
+        <section aria-labelledby="obsttorte-tasks">
+          <h4 id="obsttorte-tasks">{t("task.heading")}</h4>
+          <ul className="obsttorte-tasks">
+            {tasks.map((task) => (
+              <li key={task.key}>
+                <span>{task.text}</span>
+                <ActionButton label={task.action} onClick={task.onClick} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <div className="obsttorte-actions">
+        <ActionButton label={t("menu.openLog")} onClick={actions.openLog} />
+        <ActionButton label={t("settings.openSnapshots")} onClick={actions.openSnapshots} />
+      </div>
+    </section>
   );
 }
 
@@ -814,7 +921,7 @@ function QuarantineDecision({
     return false;
   };
   return (
-    <section className="obsttorte-view" aria-label={t("quarantine.viewTitle")}>
+    <section className="obsttorte-view" aria-label={t("quarantine.actions")}>
       <BackButton onClick={onBack} />
       <h3>{path}</h3>
       {detail ? <QuarantineDetailView detail={detail} /> : <Pending error={error} />}

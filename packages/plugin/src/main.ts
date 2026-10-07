@@ -19,13 +19,12 @@ import {
 import {
   type ButtonComponent,
   Events,
-  Menu,
-  type MenuPositionDef,
   Modal,
   Notice,
   Platform,
   Plugin,
   Setting,
+  setIcon,
   setTooltip,
 } from "obsidian";
 import {
@@ -56,9 +55,12 @@ import {
   ConflictView,
   LOG_VIEW_TYPE,
   QUARANTINE_VIEW_TYPE,
-  QuarantineView,
+  type QuarantineActions,
   SNAPSHOT_VIEW_TYPE,
   SnapshotView,
+  STATUS_VIEW_TYPE,
+  type StatusSnapshot,
+  StatusView,
   type SyncLogSnapshot,
   SyncLogView,
   type SyncSignal,
@@ -118,7 +120,8 @@ export default class ObsttortePlugin extends Plugin {
   private problem: string | null = null;
   private conflicts = 0;
   private quarantine: string[] = [];
-  private undetermined = 0;
+  private unsynced = 0;
+  private pluginDataPaths: string[] = [];
   private writeFailed = 0;
   private notices = new Map<string, { notice: Notice; text: HTMLElement | null }>();
   private pluginDataModalOpen = false;
@@ -139,9 +142,19 @@ export default class ObsttortePlugin extends Plugin {
   private scheduleTimer = 0;
   private lastSyncAt = 0;
   private events = new Events();
-  private onSynced: SyncSignal = (listener) => {
-    const ref = this.events.on("synced", listener);
-    return () => this.events.offref(ref);
+  private onSynced: SyncSignal = (listener) => this.listen("synced", listener);
+  private onStatus: SyncSignal = (listener) => this.listen("status", listener);
+  private statusSnapshot: StatusSnapshot = {
+    headline: "",
+    problem: null,
+    syncing: false,
+    paused: false,
+    conflicts: 0,
+    quarantine: [],
+    pluginData: 0,
+    unsynced: 0,
+    writeFailed: 0,
+    reloadPending: false,
   };
 
   async onload(): Promise<void> {
@@ -187,7 +200,7 @@ export default class ObsttortePlugin extends Plugin {
     this.addCommand({
       id: "open-status",
       name: t("commands.openStatus"),
-      callback: () => this.openStatusMenu(),
+      callback: () => void this.openView(STATUS_VIEW_TYPE),
     });
     this.addCommand({
       id: "purge",
@@ -196,7 +209,6 @@ export default class ObsttortePlugin extends Plugin {
     });
     const views: Array<[string, string]> = [
       ["open-conflicts", CONFLICT_VIEW_TYPE],
-      ["open-approvals", QUARANTINE_VIEW_TYPE],
       ["open-snapshots", SNAPSHOT_VIEW_TYPE],
       ["open-log", LOG_VIEW_TYPE],
     ];
@@ -209,13 +221,12 @@ export default class ObsttortePlugin extends Plugin {
     }
     this.addRibbonIcon("refresh-cw", t("commands.syncNow"), () => void this.requestSync("full"));
     this.status.setAttribute("role", "button");
-    this.status.setAttribute("aria-haspopup", "menu");
     this.status.tabIndex = 0;
-    this.status.addEventListener("click", (event) => this.openMenu(event));
+    this.status.addEventListener("click", () => this.statusAction().run());
     this.status.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      this.openStatusMenu();
+      this.statusAction().run();
     });
     this.armTimer();
     // 「3分前」のような相対時刻が古くならないように描き直す
@@ -225,6 +236,7 @@ export default class ObsttortePlugin extends Plugin {
     this.status.addClass("obsttorte-status", "mod-clickable");
     this.renderStatus();
     this.app.workspace.onLayoutReady(() => {
+      this.app.workspace.detachLeavesOfType(QUARANTINE_VIEW_TYPE);
       this.registerEvent(this.app.vault.on("create", (file) => this.markDirty(file.path)));
       this.registerEvent(this.app.vault.on("modify", (file) => this.markDirty(file.path)));
       this.registerEvent(this.app.vault.on("delete", (file) => this.markDirty(file.path)));
@@ -313,44 +325,54 @@ export default class ObsttortePlugin extends Plugin {
           },
         }),
     );
+    const quarantine: QuarantineActions = {
+      detail: async (path) => {
+        const api = this.api();
+        if (!api) {
+          return {
+            path,
+            sha256: "",
+            size: 0,
+            files: [],
+            manifest: null,
+            previousManifest: null,
+            newPlugin: false,
+          };
+        }
+        return describeQuarantine(api, vault(), path, this.newPluginIds);
+      },
+      approve: async (path, sha256) => {
+        const api = this.api();
+        if (!api) return false;
+        const approved = await approveQuarantine(api, path, sha256);
+        if (!approved) return false;
+        await new IndexedDbIndex(this.data.installId).approve(path, approved);
+        this.quarantine = this.quarantine.filter((item) => item !== path);
+        await this.requestSync("full");
+        return true;
+      },
+      reject: async (path) => {
+        const api = this.api();
+        if (!api) return;
+        await rejectQuarantine(api, vault(), path);
+        this.quarantine = this.quarantine.filter((item) => item !== path);
+        await this.requestSync("full");
+      },
+    };
     this.registerView(
-      QUARANTINE_VIEW_TYPE,
+      STATUS_VIEW_TYPE,
       (leaf) =>
-        new QuarantineView(leaf, this.onSynced, {
-          paths: () => this.quarantine,
-          newPluginIds: () => this.newPluginIds,
-          detail: async (path) => {
-            const api = this.api();
-            if (!api) {
-              return {
-                path,
-                sha256: "",
-                size: 0,
-                files: [],
-                manifest: null,
-                previousManifest: null,
-                newPlugin: false,
-              };
-            }
-            return describeQuarantine(api, vault(), path, this.newPluginIds);
-          },
-          approve: async (path, sha256) => {
-            const api = this.api();
-            if (!api) return false;
-            const approved = await approveQuarantine(api, path, sha256);
-            if (!approved) return false;
-            await new IndexedDbIndex(this.data.installId).approve(path, approved);
-            this.quarantine = this.quarantine.filter((item) => item !== path);
-            await this.requestSync("full");
-            return true;
-          },
-          reject: async (path) => {
-            const api = this.api();
-            if (!api) return;
-            await rejectQuarantine(api, vault(), path);
-            this.quarantine = this.quarantine.filter((item) => item !== path);
-            await this.requestSync("full");
-          },
+        new StatusView(leaf, this.onSynced, {
+          subscribe: this.onStatus,
+          snapshot: () => this.statusSnapshot,
+          syncNow: () => void this.requestSync("full"),
+          togglePause: () => void this.togglePause(),
+          openConflicts: () => void this.openView(CONFLICT_VIEW_TYPE),
+          openLog: () => void this.openView(LOG_VIEW_TYPE),
+          openSnapshots: () => void this.openView(SNAPSHOT_VIEW_TYPE),
+          choosePluginData: () => this.askPluginData(this.pluginDataPaths),
+          reload: () => window.location.reload(),
+          quarantine,
         }),
     );
     this.registerView(
@@ -604,10 +626,10 @@ export default class ObsttortePlugin extends Plugin {
       (item) => item.reason === "oversize" || item.reason === "read-failed",
     ).length;
     const unportable = skipped.filter((item) => item.reason === "unportable-name").length;
-    this.undetermined =
-      unreadable +
-      unportable +
-      skipped.filter((item) => item.reason === "plugin-data-unconfirmed").length;
+    this.unsynced = unreadable + unportable;
+    this.pluginDataPaths = skipped
+      .filter((item) => item.reason === "plugin-data-unconfirmed")
+      .map((item) => item.path);
     this.lastPlan = result.plan;
     if (result.plan) await this.rememberPlan(result.plan, result.rejected);
     const collisions = result.rejected.filter((item) => item.reason === "pathCollision");
@@ -646,7 +668,7 @@ export default class ObsttortePlugin extends Plugin {
       this.actionNotice(
         "quarantine",
         t("notice.quarantine", { count: this.quarantine.length }),
-        () => void this.openView(QUARANTINE_VIEW_TYPE),
+        () => void this.openView(STATUS_VIEW_TYPE),
         t("notice.review"),
       );
     else this.dismiss("quarantine");
@@ -658,11 +680,12 @@ export default class ObsttortePlugin extends Plugin {
         t("notice.reloadButton"),
       );
     else this.dismiss("reload");
-    const unconfirmed =
-      result.plan?.skipped.filter((item) => item.reason === "plugin-data-unconfirmed") ?? [];
-    if (unconfirmed.length > 0) {
-      this.onceNotice("plugin-data", t("notice.pluginData", { count: unconfirmed.length }));
-      this.askPluginData(unconfirmed.map((item) => item.path));
+    if (this.pluginDataPaths.length > 0) {
+      this.onceNotice(
+        "plugin-data",
+        t("notice.pluginData", { count: this.pluginDataPaths.length }),
+      );
+      this.askPluginData(this.pluginDataPaths);
     }
     const styles = result.plan?.stylePaths.length ?? 0;
     if (styles > 0) this.onceNotice("style", t("notice.style", { count: styles }));
@@ -977,34 +1000,79 @@ export default class ObsttortePlugin extends Plugin {
   }
 
   private renderStatus(): void {
-    this.status.classList.toggle(
-      "is-warning",
-      this.conflicts > 0 ||
-        this.quarantine.length > 0 ||
-        this.undetermined > 0 ||
-        this.writeFailed > 0 ||
-        this.data.reloadPending.length > 0,
-    );
-    this.status.classList.toggle(
-      "is-error",
-      this.stopped === "setup" ||
-        this.stopped === "auth" ||
-        this.stopped === "error" ||
-        this.stopped === "version",
-    );
+    const stopped = this.isStopped();
+    this.status.classList.toggle("is-warning", !stopped && this.needsAttention());
+    this.status.classList.toggle("is-error", stopped);
     const text = this.statusText();
-    this.status.setText(text);
+    this.status.empty();
+    setIcon(this.status.createSpan({ cls: "obsttorte-status-icon" }), this.statusIcon());
+    this.status.createSpan({ text });
     // ツールチップはaria-labelも兼ねるので、読み上げでも状態と理由が伝わるようにする
-    setTooltip(this.status, [`Obsttorte: ${text}`, this.problem].filter(Boolean).join("\n"), {
-      placement: "top",
-    });
+    setTooltip(
+      this.status,
+      [`Torte: ${text}`, this.problem, this.statusAction().hint].filter(Boolean).join("\n"),
+      { placement: "top" },
+    );
+    const fresh = new Set(this.newPluginIds);
+    this.statusSnapshot = {
+      headline:
+        this.progress || this.isPaused() || stopped
+          ? text
+          : t("status.lastSynced", { time: formatRelative(this.data.lastConfirmedAt) }),
+      problem: this.problem,
+      syncing: this.progress !== null,
+      paused: this.isPaused(),
+      conflicts: this.conflicts,
+      quarantine: this.quarantine.map((path) => ({
+        path,
+        newPlugin: fresh.has(/\/plugins\/([^/]+)\//.exec(path)?.[1] ?? ""),
+      })),
+      pluginData: this.pluginDataPaths.length,
+      unsynced: this.unsynced,
+      writeFailed: this.writeFailed,
+      reloadPending: this.data.reloadPending.length > 0,
+    };
+    this.events.trigger("status");
+  }
+
+  private isPaused(): boolean {
+    return this.stopped === "paused" || this.data.syncMode === "paused" || this.data.autoSyncPaused;
+  }
+
+  private isStopped(): boolean {
+    return (
+      this.stopped === "setup" ||
+      this.stopped === "auth" ||
+      this.stopped === "error" ||
+      this.stopped === "version" ||
+      (this.data.autoSyncPaused && this.data.syncMode !== "paused")
+    );
+  }
+
+  private needsAttention(): boolean {
+    return (
+      this.conflicts > 0 ||
+      this.quarantine.length > 0 ||
+      this.pluginDataPaths.length > 0 ||
+      this.unsynced > 0 ||
+      this.writeFailed > 0 ||
+      this.data.reloadPending.length > 0
+    );
+  }
+
+  private statusIcon(): string {
+    if (this.progress) return "refresh-cw";
+    if (this.isStopped()) return "circle-x";
+    if (this.isPaused()) return "pause";
+    if (this.needsAttention()) return "circle-alert";
+    return "check";
   }
 
   private statusText(): string {
     if (this.progress) {
       return t("status.syncing", { done: this.progress.done, total: this.progress.total });
     }
-    if (this.stopped === "paused" || this.data.syncMode === "paused" || this.data.autoSyncPaused) {
+    if (this.isPaused()) {
       return this.data.autoSyncPaused && this.data.syncMode !== "paused"
         ? t("status.error")
         : t("status.paused");
@@ -1017,7 +1085,10 @@ export default class ObsttortePlugin extends Plugin {
     if (this.quarantine.length > 0) {
       return t("status.approval", { count: this.quarantine.length });
     }
-    if (this.undetermined > 0) return t("status.undetermined", { count: this.undetermined });
+    if (this.pluginDataPaths.length > 0) {
+      return t("status.pluginData", { count: this.pluginDataPaths.length });
+    }
+    if (this.unsynced > 0) return t("status.unsynced", { count: this.unsynced });
     if (this.writeFailed > 0) return t("status.writeFailed", { count: this.writeFailed });
     if (this.data.reloadPending.length > 0) {
       return t("status.reload", { count: this.data.reloadPending.length });
@@ -1025,83 +1096,44 @@ export default class ObsttortePlugin extends Plugin {
     return t("status.synced", { time: formatRelative(this.data.lastConfirmedAt) });
   }
 
-  private openStatusMenu(): void {
-    const rect = this.status.getBoundingClientRect();
-    this.openMenu({ x: rect.left, y: rect.top });
+  private statusAction(): { hint: string; run: () => void } {
+    const showStatus = {
+      hint: t("status.hint.view"),
+      run: () => void this.openView(STATUS_VIEW_TYPE),
+    };
+    if (this.progress || this.isPaused() || this.isStopped()) return showStatus;
+    if (this.conflicts > 0) {
+      return {
+        hint: t("status.hint.conflicts"),
+        run: () => void this.openView(CONFLICT_VIEW_TYPE),
+      };
+    }
+    if (this.needsAttention()) return showStatus;
+    return { hint: t("status.hint.sync"), run: () => void this.requestSync("full") };
   }
 
-  private openMenu(at: MouseEvent | MenuPositionDef): void {
-    const menu = new Menu();
-    const problem = this.problem;
-    if (problem) {
-      menu.addItem((item) => item.setTitle(problem).setDisabled(true));
-      menu.addSeparator();
+  private async togglePause(): Promise<void> {
+    if (!this.isPaused()) {
+      await this.persist({ ...this.data, syncMode: "paused" });
+      return;
     }
-    menu.addItem((item) =>
-      item
-        .setTitle(t("menu.confirmed", { time: formatRelative(this.data.lastConfirmedAt) }))
-        .setDisabled(true),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("menu.snapshot", { time: formatRelative(this.data.lastSnapshotAt) }))
-        .setDisabled(true),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("menu.conflicts", { count: this.conflicts }))
-        .onClick(() => void this.openView(CONFLICT_VIEW_TYPE)),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("menu.quarantine", { count: this.quarantine.length }))
-        .onClick(() => void this.openView(QUARANTINE_VIEW_TYPE)),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(t("menu.undetermined", { count: this.undetermined }))
-        .onClick(() => void this.openView(LOG_VIEW_TYPE)),
-    );
-    menu.addItem((item) =>
-      item.setTitle(t("menu.reload", { count: this.data.reloadPending.length })).onClick(() => {
-        if (this.data.reloadPending.length > 0) window.location.reload();
-      }),
-    );
-    menu.addItem((item) =>
-      item.setTitle(t("menu.syncNow")).onClick(() => void this.requestSync("full")),
-    );
-    menu.addItem((item) =>
-      item.setTitle(t("menu.openLog")).onClick(() => void this.openView(LOG_VIEW_TYPE)),
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(
-          this.data.syncMode === "paused" || this.data.autoSyncPaused
-            ? t("menu.resume")
-            : t("menu.pause"),
-        )
-        .onClick(() => {
-          if (this.data.syncMode === "paused" || this.data.autoSyncPaused) {
-            this.failureStreak = 0;
-            this.stopped = "ok";
-            void this.persist({
-              ...this.data,
-              autoSyncPaused: false,
-              syncMode: this.data.syncMode === "paused" ? "bidirectional" : this.data.syncMode,
-            }).then(() => this.requestSync("full"));
-            return;
-          }
-          void this.persist({ ...this.data, syncMode: "paused" });
-        }),
-    );
-    if (at instanceof MouseEvent) menu.showAtMouseEvent(at);
-    else menu.showAtPosition(at);
+    this.failureStreak = 0;
+    this.stopped = "ok";
+    await this.persist({
+      ...this.data,
+      autoSyncPaused: false,
+      syncMode: this.data.syncMode === "paused" ? "bidirectional" : this.data.syncMode,
+    });
+    await this.requestSync("full");
+  }
+
+  private listen(name: string, listener: () => void): () => void {
+    const ref = this.events.on(name, listener);
+    return () => this.events.offref(ref);
   }
 
   private async openView(type: string): Promise<void> {
-    const leaf = this.app.workspace.getRightLeaf(false);
-    await leaf?.setViewState({ type, active: true });
-    if (leaf) await this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.ensureSideLeaf(type, "right", { active: true, reveal: true });
   }
 
   /**
