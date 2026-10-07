@@ -6,15 +6,13 @@
 
 Obsttorteは、Obsidianのvaultを複数のデバイスで同期するソフトウェアです。Cloudflare Workers、D1、R2で動作するサーバーと、Obsidianのプラグイン、CLIで構成されています。
 
-ユーザーは、vaultごとに自身のCloudflareアカウントにサーバーをセルフホストします。Obsidianのvaultに含まれるノートだけでなく、設定フォルダにあるプラグインや設定も含めて全体を同期するほか、ファイル単位のマージ、競合した内容を解決するUI、変更履歴を保存して復元する機能を備えています。
+vaultごとに、ユーザーが自身のCloudflareアカウントにサーバーをセルフホストします。ノートだけでなく、設定フォルダにあるプラグインや設定も含めてvault全体を同期するほか、ファイル単位のマージ、競合した内容を解決するUI、変更履歴を保存して復元する機能を備えています。
 
 ## 利用に必要なもの
 
 - [Workers Paid plan](https://developers.cloudflare.com/workers/platform/pricing/)を契約したCloudflareアカウント
-  - Workers Free planでは、CPU時間とD1の容量が足りないためです。
-  - データベースにD1、ストレージにR2を使用しますが、個人で利用する規模であれば、Paid planに含まれる利用枠とR2の無料枠に収まるように設計しています。
-- Cloudflare Zero Trust（Free plan）
-  - アクセス制限に使用します。
+  - Workers Free planではCPUを利用できる時間とD1の容量が足りないため、Paid planでご利用ください。
+  - ストレージにはR2、アクセス制限にはCloudflare Zero Trustを使用しますが、個人で利用する規模であれば無料枠に収まるように設計しています。
 - CLIの実行に必要なNode.js 22以降
 - Obsidian 1.13.0以降
 
@@ -26,11 +24,9 @@ Obsttorteは、Obsidianのvaultを複数のデバイスで同期するソフト�
 npx obsttorte@latest setup
 ```
 
-CLIを実行すると、対話形式でWorker、D1のデータベース、R2のバケットを作成し、デプロイします。Cloudflare Accessの設定手順が表示されるので、Cloudflareのダッシュボードで設定し、AUDタグ、Client ID、サービストークンの有効期限を入力します。Client Secretはサービストークンを作成したときにしか表示されないので、控えておいてください。
+CLIを実行すると、対話形式でWorker、D1のデータベース、R2のバケットを作成し、デプロイします。Cloudflare Accessの設定手順が表示されるので、Cloudflareのダッシュボードで設定し、AUDタグ、Client ID、サービストークンの有効期限を入力します。入力した内容は`~/.config/obsttorte/<Worker名>.json`に保存しますが、トークンなどの秘密情報は含めません。
 
-最後に最初のデバイスが登録され、プラグインに入力する値が表示されます。デバイストークンはこのときしか表示されません。入力した内容は`~/.config/obsttorte/<Worker名>.json`に保存します。トークンなどの秘密情報は保存しません。
-
-サーバーはvaultごとに用意します。`--name`オプションでWorkerの名前を変えると、ひとつのCloudflareアカウントで複数のサーバーを作成できます。
+サーバーはvaultごとに必要です。`--name`オプションでWorkerの名前を変えると、ひとつのCloudflareアカウントで複数のサーバーを作成できます。
 
 ```sh
 npx obsttorte@latest setup --name obsttorte-work
@@ -42,7 +38,7 @@ Obsidianのコミュニティプラグインから「[Torte](https://community.o
 
 1. Obsidianの「設定」→「コミュニティプラグイン」で「閲覧」を選び、「Torte」を検索します。
 2. Torteをインストールして、有効化します。
-3. Torteの設定画面から、サーバーURL、Access Client ID、Access Client Secret、デバイストークンを入力してください。
+3. Torteの設定画面で、サーバーURL、Access Client ID、Access Client Secret、デバイストークンを入力します。
 
 ### デバイストークン
 
@@ -60,9 +56,7 @@ npx obsttorte@latest device revoke <ID>
 npx obsttorte@latest update
 ```
 
-同梱されたサーバーをデプロイし、データベースのマイグレーションを適用します。デバイスやAccessの設定、vaultのデータには触れません。複数のサーバーを運用している場合は、`--name`で対象を指定するか、`--all`ですべてをアップデートします。
-
-プラグインは、各デバイスでアップデートしてください。サーバーとプラグインは同じバージョン番号どうしで動作します。サーバーが対応しない古いプラグインのデバイスがあると、`update`は止まってそのデバイスを表示します。
+コマンドを実行すると、サーバーに最新のコードをデプロイし、データベースのマイグレーションを適用します。複数のサーバーを運用している場合は、`--name`で対象を指定するか、`--all`を指定するとすべてのサーバーをアップデートできます。Obsidianプラグインは、インストールしたデバイスごとにObsidian上でアップデートしてください。
 
 ## 注意事項
 
