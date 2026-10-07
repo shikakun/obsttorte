@@ -104,8 +104,8 @@ function ActionButton({
     <button
       type="button"
       className={warning ? "mod-warning" : undefined}
-      aria-label={label}
-      ref={tooltip(label)}
+      aria-label={text === undefined ? undefined : label}
+      ref={text === undefined ? undefined : tooltip(label)}
       disabled={disabled}
       onClick={onClick}
     >
@@ -485,9 +485,9 @@ function SnapshotDeltaList({
     return <p>{t("snapshots.noChanges")}</p>;
   }
   const groups = [
-    [t("snapshots.added"), delta.added, true],
-    [t("snapshots.changed"), delta.changed, true],
-    [t("snapshots.removed"), delta.removed, false],
+    [t("snapshots.deletedSince"), delta.added, true],
+    [t("snapshots.changedSince"), delta.changed, true],
+    [t("snapshots.createdSince"), delta.removed, false],
   ] as const;
   return (
     <div>

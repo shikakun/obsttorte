@@ -80,7 +80,6 @@ function splitLines(text: string): string[] {
   return lines;
 }
 
-/** 変更の前後に添える、変わっていない行の数 */
 const CONTEXT_LINES = 3;
 
 export function diffLines(before: string, after: string): DiffHunk[] {
@@ -118,7 +117,6 @@ export function diffLines(before: string, after: string): DiffHunk[] {
       }
       current.lines.push(line);
       equalRun += 1;
-      // 次の変更との間が狭ければ、1つの塊にまとめて同じ行を二度見せない
       if (equalRun > CONTEXT_LINES * 2) flush();
       continue;
     }
