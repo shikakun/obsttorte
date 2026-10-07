@@ -983,7 +983,9 @@ export default class ObsttortePlugin extends Plugin {
     const text = this.statusText();
     this.status.setText(text);
     // ツールチップはaria-labelも兼ねるので、読み上げでも状態と理由が伝わるようにする
-    setTooltip(this.status, [`Obsttorte: ${text}`, this.problem].filter(Boolean).join("\n"));
+    setTooltip(this.status, [`Obsttorte: ${text}`, this.problem].filter(Boolean).join("\n"), {
+      placement: "top",
+    });
   }
 
   private statusText(): string {
