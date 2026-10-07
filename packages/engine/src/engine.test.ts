@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { type ApiClient, ApiRequestError } from "./api-client";
 import { newerConflictSide } from "./conflict-choice";
 import { decideAction, losesSurvivor } from "./decide";
+import { diffLines } from "./diff";
 import { isExcluded } from "./exclusions";
 import { type LocalIndexEntry, MemoryIndex, MemoryJournal, MemoryVault } from "./memory";
 import { mergeFile } from "./merge";
@@ -111,6 +112,45 @@ describe("decideAction", () => {
         return !losesSurvivor(versions, decideAction(versions));
       }),
     );
+  });
+});
+
+describe("diffLines", () => {
+  const numbered = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, index) => `line ${from + index}`);
+
+  it("surrounds a change with three unchanged lines on each side", () => {
+    const before = numbered(1, 10);
+    const after = before.map((line) => (line === "line 5" ? "line five" : line));
+    const [hunk, ...rest] = diffLines(before.join("\n"), after.join("\n"));
+    expect(rest).toEqual([]);
+    expect(hunk?.beforeStart).toBe(1);
+    expect(hunk?.afterStart).toBe(1);
+    expect(hunk?.lines.map((line) => [line.type, line.text])).toEqual([
+      ["equal", "line 2"],
+      ["equal", "line 3"],
+      ["equal", "line 4"],
+      ["delete", "line 5"],
+      ["insert", "line five"],
+      ["equal", "line 6"],
+      ["equal", "line 7"],
+      ["equal", "line 8"],
+    ]);
+  });
+
+  it("joins changes close together and never repeats a line across hunks", () => {
+    const before = numbered(1, 30);
+    for (const gap of [5, 6, 7, 8, 12]) {
+      const second = 2 + gap;
+      const after = before.filter((line) => line !== "line 2" && line !== `line ${second}`);
+      const hunks = diffLines(before.join("\n"), after.join("\n"));
+      expect(hunks.length).toBe(gap - 1 <= 6 ? 1 : 2);
+      const shown = hunks.flatMap((hunk) => hunk.lines.map((line) => line.text));
+      expect(new Set(shown).size).toBe(shown.length);
+      for (const hunk of hunks) {
+        expect(before[hunk.beforeStart]).toBe(hunk.lines[0]?.text);
+      }
+    }
   });
 });
 

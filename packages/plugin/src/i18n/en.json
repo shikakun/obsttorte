@@ -150,6 +150,7 @@
   "conflict.localColumn": "This device",
   "conflict.remoteColumn": "Server",
   "conflict.unchanged": "Same as the base.",
+  "conflict.hunk": "From line {line}",
   "conflict.draft": "Edited text",
   "problem.actionUnknown": "The operation failed.",
   "snapshots.confirm": "Restore",

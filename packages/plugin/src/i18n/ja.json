@@ -150,6 +150,7 @@
   "conflict.localColumn": "このデバイス",
   "conflict.remoteColumn": "サーバー",
   "conflict.unchanged": "ベースと同じです。",
+  "conflict.hunk": "{line}行目から",
   "conflict.draft": "編集する内容",
   "problem.actionUnknown": "操作に失敗しました。",
   "snapshots.confirm": "復元する",

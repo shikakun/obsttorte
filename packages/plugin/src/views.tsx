@@ -724,26 +724,31 @@ function ThreeWay({ label, before, after }: { label: string; before: string; aft
       const words = [];
       let wordOffset = 0;
       for (const part of line.words) {
+        const key = `${lineOffset}:${wordOffset}:${part.type}`;
         words.push(
-          <span
-            key={`${lineOffset}:${wordOffset}:${part.type}`}
-            className={
-              part.type === "insert"
-                ? "obsttorte-added"
-                : part.type === "delete"
-                  ? "obsttorte-removed"
-                  : undefined
-            }
-          >
-            {part.text}
-          </span>,
+          part.type === "insert" ? (
+            <ins key={key}>{part.text}</ins>
+          ) : part.type === "delete" ? (
+            <del key={key}>{part.text}</del>
+          ) : (
+            <span key={key}>{part.text}</span>
+          ),
         );
         wordOffset += part.text.length;
       }
-      lines.push(<div key={`${lineOffset}:${line.type}`}>{words}</div>);
+      lines.push(
+        <div key={`${lineOffset}:${line.type}`} className={`obsttorte-line is-${line.type}`}>
+          {words}
+        </div>,
+      );
       lineOffset += 1;
     }
-    blocks.push(<pre key={`${hunk.beforeStart}:${hunk.afterStart}`}>{lines}</pre>);
+    blocks.push(
+      <div key={`${hunk.beforeStart}:${hunk.afterStart}`} className="obsttorte-hunk">
+        <p className="obsttorte-muted">{t("conflict.hunk", { line: hunk.afterStart + 1 })}</p>
+        <pre>{lines}</pre>
+      </div>,
+    );
   }
   return (
     <section aria-label={label}>

@@ -80,6 +80,9 @@ function splitLines(text: string): string[] {
   return lines;
 }
 
+/** 変更の前後に添える、変わっていない行の数 */
+const CONTEXT_LINES = 3;
+
 export function diffLines(before: string, after: string): DiffHunk[] {
   const beforeLines = splitLines(before);
   const afterLines = splitLines(after);
@@ -88,34 +91,47 @@ export function diffLines(before: string, after: string): DiffHunk[] {
   let beforeIndex = 0;
   let afterIndex = 0;
   let current: DiffHunk | null = null;
+  let leading: DiffLine[] = [];
   let equalRun = 0;
   const flush = () => {
-    if (current?.lines.some((line) => line.type !== "equal")) hunks.push(current);
+    if (!current) return;
+    const hidden = current.lines.splice(
+      current.lines.length - Math.max(0, equalRun - CONTEXT_LINES),
+    );
+    hunks.push(current);
     current = null;
+    leading = hidden.slice(-CONTEXT_LINES);
     equalRun = 0;
   };
   for (const op of ops) {
-    if (op.type === "equal") {
-      equalRun += 1;
-      if (current) {
-        current.lines.push({
-          type: "equal",
-          text: op.text,
-          words: [{ type: "equal", text: op.text }],
-        });
-        if (equalRun > 3) flush();
-      }
-      beforeIndex += 1;
-      afterIndex += 1;
-      continue;
-    }
-    equalRun = 0;
-    if (!current) current = { beforeStart: beforeIndex, afterStart: afterIndex, lines: [] };
-    current.lines.push({
+    const line: DiffLine = {
       type: op.type,
       text: op.text,
       words: [{ type: op.type, text: op.text }],
-    });
+    };
+    if (op.type === "equal") {
+      beforeIndex += 1;
+      afterIndex += 1;
+      if (!current) {
+        leading = [...leading, line].slice(-CONTEXT_LINES);
+        continue;
+      }
+      current.lines.push(line);
+      equalRun += 1;
+      // 次の変更との間が狭ければ、1つの塊にまとめて同じ行を二度見せない
+      if (equalRun > CONTEXT_LINES * 2) flush();
+      continue;
+    }
+    equalRun = 0;
+    if (!current) {
+      current = {
+        beforeStart: beforeIndex - leading.length,
+        afterStart: afterIndex - leading.length,
+        lines: leading,
+      };
+      leading = [];
+    }
+    current.lines.push(line);
     if (op.type === "delete") beforeIndex += 1;
     else afterIndex += 1;
   }
