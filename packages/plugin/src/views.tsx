@@ -7,7 +7,7 @@ import {
 } from "@obsttorte/engine";
 import type { ConflictRecord, LogEntry, SnapshotListItem } from "@obsttorte/shared";
 import { ItemView, Notice, setTooltip, type WorkspaceLeaf } from "obsidian";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { QuarantineDetail, ResolveChoice } from "./actions";
 import { formatBytes, formatDateTime, label, t } from "./i18n";
@@ -18,14 +18,25 @@ export const QUARANTINE_VIEW_TYPE = "obsttorte-quarantine";
 export const SNAPSHOT_VIEW_TYPE = "obsttorte-snapshots";
 export const LOG_VIEW_TYPE = "obsttorte-sync-log";
 
+export type SyncSignal = (listener: () => void) => () => void;
+
+const Synced = createContext<SyncSignal>(() => () => {});
+
 abstract class ReactView extends ItemView {
   private root: Root | null = null;
+
+  constructor(
+    leaf: WorkspaceLeaf,
+    private readonly onSynced: SyncSignal,
+  ) {
+    super(leaf);
+  }
 
   protected abstract content(): ReactNode;
 
   async onOpen(): Promise<void> {
     this.root = createRoot(this.contentEl);
-    this.root.render(this.content());
+    this.root.render(<Synced value={this.onSynced}>{this.content()}</Synced>);
   }
 
   async onClose(): Promise<void> {
@@ -38,18 +49,27 @@ function useLoaded<T>(load: () => Promise<T>): {
   value: T | null;
   error: string | null;
   reload: () => void;
+  refresh: () => void;
 } {
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const reload = useCallback(() => {
-    setValue(null);
-    setError(null);
+  const refresh = useCallback(() => {
     void load().then(setValue, (reason: unknown) => {
       setError(describeFailure(failureOf(reason), "action"));
     });
   }, [load]);
+  const reload = useCallback(() => {
+    setValue(null);
+    setError(null);
+    refresh();
+  }, [refresh]);
   useEffect(reload, [reload]);
-  return { value, error, reload };
+  return { value, error, reload, refresh };
+}
+
+function useOnSynced(listener: () => void): void {
+  const subscribe = useContext(Synced);
+  useEffect(() => subscribe(listener), [subscribe, listener]);
 }
 
 /** 失敗をNoticeで知らせ、終わるまで同じ画面のボタンを押せなくする */
@@ -125,9 +145,10 @@ export type ConflictActions = {
 export class ConflictView extends ReactView {
   constructor(
     leaf: WorkspaceLeaf,
+    onSynced: SyncSignal,
     private readonly actions: ConflictActions,
   ) {
-    super(leaf);
+    super(leaf, onSynced);
   }
   getViewType(): string {
     return CONFLICT_VIEW_TYPE;
@@ -158,18 +179,17 @@ function bulkOptions(): BulkPending[] {
 }
 
 function ConflictList({ actions }: { actions: ConflictActions }) {
-  const { value: items, error, reload } = useLoaded(actions.load);
+  const { value: items, error, reload, refresh } = useLoaded(actions.load);
+  useOnSynced(refresh);
   const { busy, run } = useAction();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ConflictRecord | null>(null);
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [pending, setPending] = useState<BulkPending | null>(null);
-  const current = items?.find((item) => item.id === selected);
-  const openConflict = (id: string) => {
-    setSelected(id);
+  const current = items?.some((item) => item.id === selected?.id) ? selected : null;
+  const openConflict = (item: ConflictRecord) => {
+    setSelected(item);
     setDraft("");
-    const item = items?.find((entry) => entry.id === id);
-    if (!item) return;
     void run(async () => {
       const texts = await actions.texts(item);
       const merged = mergeText(texts.base, texts.local, texts.remote);
@@ -287,7 +307,7 @@ function ConflictList({ actions }: { actions: ConflictActions }) {
       <ul>
         {items.map((item) => (
           <li key={item.id}>
-            <ActionButton label={item.path} onClick={() => openConflict(item.id)} />
+            <ActionButton label={item.path} onClick={() => openConflict(item)} />
           </li>
         ))}
       </ul>
@@ -307,9 +327,10 @@ export type QuarantineActions = {
 export class QuarantineView extends ReactView {
   constructor(
     leaf: WorkspaceLeaf,
+    onSynced: SyncSignal,
     private readonly actions: QuarantineActions,
   ) {
-    super(leaf);
+    super(leaf, onSynced);
   }
   getViewType(): string {
     return QUARANTINE_VIEW_TYPE;
@@ -327,6 +348,7 @@ export class QuarantineView extends ReactView {
 
 function QuarantineList({ actions }: { actions: QuarantineActions }) {
   const [paths, setPaths] = useState(actions.paths());
+  useOnSynced(useCallback(() => setPaths(actions.paths()), [actions]));
   const [selected, setSelected] = useState<string | null>(null);
   const fresh = new Set(actions.newPluginIds());
   if (selected) {
@@ -372,11 +394,12 @@ function QuarantineList({ actions }: { actions: QuarantineActions }) {
 export class SnapshotView extends ReactView {
   constructor(
     leaf: WorkspaceLeaf,
+    onSynced: SyncSignal,
     private readonly loadItems: () => Promise<SnapshotListItem[]>,
     private readonly compare: (id: string) => Promise<SnapshotDelta>,
     private readonly restore: (id: string, paths?: string[]) => Promise<void>,
   ) {
-    super(leaf);
+    super(leaf, onSynced);
   }
   getViewType(): string {
     return SNAPSHOT_VIEW_TYPE;
@@ -401,7 +424,8 @@ function SnapshotList({
   compare: (id: string) => Promise<SnapshotDelta>;
   restore: (id: string, paths?: string[]) => Promise<void>;
 }) {
-  const { value: items, error } = useLoaded(load);
+  const { value: items, error, refresh } = useLoaded(load);
+  useOnSynced(refresh);
   const [selected, setSelected] = useState<string | null>(null);
   if (selected) {
     const label = items?.find((item) => item.id === selected);
@@ -557,10 +581,11 @@ export type SyncLogSnapshot = {
 export class SyncLogView extends ReactView {
   constructor(
     leaf: WorkspaceLeaf,
+    onSynced: SyncSignal,
     private readonly loadItems: () => Promise<SyncLogSnapshot>,
     private readonly copyRedacted: () => Promise<void>,
   ) {
-    super(leaf);
+    super(leaf, onSynced);
   }
   getViewType(): string {
     return LOG_VIEW_TYPE;
@@ -583,7 +608,8 @@ function LogList({
   load: () => Promise<SyncLogSnapshot>;
   copyRedacted: () => Promise<void>;
 }) {
-  const { value: snapshot, error } = useLoaded(load);
+  const { value: snapshot, error, refresh } = useLoaded(load);
+  useOnSynced(refresh);
   const { busy, run } = useAction();
   if (!snapshot) {
     return (

@@ -18,6 +18,7 @@ import {
 } from "@obsttorte/shared";
 import {
   type ButtonComponent,
+  Events,
   Menu,
   type MenuPositionDef,
   Modal,
@@ -60,6 +61,7 @@ import {
   SnapshotView,
   type SyncLogSnapshot,
   SyncLogView,
+  type SyncSignal,
 } from "./views";
 
 function storageConcern(result: Record<string, unknown>): boolean {
@@ -136,6 +138,11 @@ export default class ObsttortePlugin extends Plugin {
   private scheduled: SyncKind | null = null;
   private scheduleTimer = 0;
   private lastSyncAt = 0;
+  private events = new Events();
+  private onSynced: SyncSignal = (listener) => {
+    const ref = this.events.on("synced", listener);
+    return () => this.events.offref(ref);
+  };
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -268,7 +275,7 @@ export default class ObsttortePlugin extends Plugin {
     this.registerView(
       CONFLICT_VIEW_TYPE,
       (leaf) =>
-        new ConflictView(leaf, {
+        new ConflictView(leaf, this.onSynced, {
           load: async () => (await this.api()?.conflicts()) ?? [],
           texts: async (conflict) => {
             const api = this.api();
@@ -309,7 +316,7 @@ export default class ObsttortePlugin extends Plugin {
     this.registerView(
       QUARANTINE_VIEW_TYPE,
       (leaf) =>
-        new QuarantineView(leaf, {
+        new QuarantineView(leaf, this.onSynced, {
           paths: () => this.quarantine,
           newPluginIds: () => this.newPluginIds,
           detail: async (path) => {
@@ -351,6 +358,7 @@ export default class ObsttortePlugin extends Plugin {
       (leaf) =>
         new SnapshotView(
           leaf,
+          this.onSynced,
           async () => (await this.api()?.snapshots()) ?? [],
           async (id) => {
             const api = this.api();
@@ -377,6 +385,7 @@ export default class ObsttortePlugin extends Plugin {
       (leaf) =>
         new SyncLogView(
           leaf,
+          this.onSynced,
           () => this.syncLog(),
           () => this.copyPlan(true),
         ),
@@ -531,7 +540,10 @@ export default class ObsttortePlugin extends Plugin {
       } else if (result.conflicts.length > 0) {
         this.conflicts += result.conflicts.length;
       }
-      if (options.present !== false) await this.present(result);
+      if (options.present !== false) {
+        await this.present(result);
+        this.events.trigger("synced");
+      }
       return result;
     } finally {
       this.progress = null;
