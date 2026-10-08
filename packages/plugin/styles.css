@@ -1,5 +1,17 @@
 .obsttorte-status {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
   color: var(--text-muted);
+}
+
+.obsttorte-status-icon {
+  display: flex;
+}
+
+.obsttorte-status-icon svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
 }
 
 .obsttorte-status.is-warning {
@@ -35,14 +47,23 @@
   background: var(--background-modifier-error);
 }
 
-.obsttorte-added {
-  color: var(--color-green);
-  text-decoration: underline;
+.obsttorte-connection {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-end: var(--size-2-2);
 }
 
-.obsttorte-removed {
-  color: var(--color-red);
-  text-decoration: line-through;
+.obsttorte-connection svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.obsttorte-connection.is-ok {
+  color: var(--color-green);
+}
+
+.obsttorte-connection.is-error {
+  color: var(--text-error);
 }
 
 .obsttorte-fixed-exclusions {
@@ -55,18 +76,323 @@
   gap: var(--size-2-2);
 }
 
-.obsttorte-diff {
+.obsttorte-muted {
+  color: var(--text-muted);
+}
+
+.workspace-leaf-content[data-type="obsttorte-conflicts"] .view-content {
+  container-type: inline-size;
+  padding: 0;
+}
+
+.obsttorte-conflicts {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  min-height: 100%;
+}
+
+.obsttorte-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3) var(--size-4-2);
+  border-inline-end: 1px solid var(--background-modifier-border);
+}
+
+.obsttorte-conflict-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-inline: var(--size-4-2);
+}
+
+.obsttorte-conflict-list h2 {
+  margin: 0;
+  font-size: var(--font-ui-medium);
+}
+
+.obsttorte-conflict-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+}
+
+.obsttorte-conflict-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--size-2-1);
+  width: 100%;
+  height: auto;
+  padding: var(--size-4-2);
+  text-align: start;
+  white-space: normal;
+  background: transparent;
+  box-shadow: none;
+}
+
+.obsttorte-conflict-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.obsttorte-conflict-item[aria-current="true"] {
+  background: var(--background-modifier-active-hover);
+}
+
+.obsttorte-conflict-path {
+  font-weight: var(--font-semibold);
+  overflow-wrap: anywhere;
+}
+
+.obsttorte-conflict-item .obsttorte-muted {
+  font-size: var(--font-ui-smaller);
+}
+
+.obsttorte-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  min-width: 0;
+  padding: var(--size-4-4) var(--size-4-6);
+}
+
+.obsttorte-conflict-back {
+  display: none;
+}
+
+.obsttorte-conflict-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--size-4-3);
+}
+
+.obsttorte-conflict-header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.obsttorte-sides {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-3);
+}
+
+.obsttorte-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-3);
+  padding: var(--size-2-2) var(--size-4-3) var(--size-2-2) var(--size-4-2);
+  border-radius: var(--radius-xl);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+}
+
+.obsttorte-icon {
+  display: inline-flex;
+}
+
+.obsttorte-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.obsttorte-icon.is-local {
+  color: var(--color-blue);
+}
+
+.obsttorte-icon.is-remote {
+  color: var(--color-orange);
+}
+
+.obsttorte-conflict-body {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-2);
 }
 
-.obsttorte-field {
+.obsttorte-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: var(--size-2-1);
+  padding: var(--size-2-1);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.obsttorte-tabs button {
+  height: auto;
+  padding: var(--size-2-2) var(--size-4-3);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+.obsttorte-tabs button[aria-selected="true"] {
+  color: var(--text-normal);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.obsttorte-panel {
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary-alt);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
+}
+
+.obsttorte-panel pre {
+  margin: 0;
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.obsttorte-panel p {
+  margin: 0;
+  font-family: var(--font-interface);
+}
+
+.obsttorte-hunk + .obsttorte-hunk {
+  margin-top: var(--size-4-2);
+  padding-top: var(--size-4-2);
+  border-top: 1px dashed var(--background-modifier-border);
+}
+
+.obsttorte-line {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr);
+  column-gap: var(--size-4-2);
+}
+
+.obsttorte-line-side {
+  padding-inline-start: var(--size-4-2);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.obsttorte-line-text {
+  min-height: 1lh;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.obsttorte-line.is-local {
+  background: rgba(var(--color-blue-rgb), 0.12);
+  box-shadow: inset 3px 0 0 var(--color-blue);
+}
+
+.obsttorte-line.is-remote {
+  background: rgba(var(--color-orange-rgb), 0.12);
+  box-shadow: inset 3px 0 0 var(--color-orange);
+}
+
+.obsttorte-line.is-local .obsttorte-changed {
+  background: rgba(var(--color-blue-rgb), 0.3);
+}
+
+.obsttorte-line.is-remote .obsttorte-changed {
+  background: rgba(var(--color-orange-rgb), 0.3);
+}
+
+.obsttorte-line-text > .obsttorte-changed:only-child {
+  background: none;
+}
+
+.obsttorte-editor {
+  width: 100%;
+  min-height: 20rem;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
+  resize: vertical;
+}
+
+.obsttorte-warning {
+  margin: 0;
+  align-self: center;
+  color: var(--text-warning);
+}
+
+.obsttorte-badge {
+  margin-inline-start: var(--size-2-3);
+  padding: var(--size-2-1) var(--size-2-3);
+  border-radius: var(--radius-l);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  line-height: 1;
+  color: var(--interactive-accent);
+  background: var(--text-on-accent);
+}
+
+@container (max-width: 40rem) {
+  .obsttorte-conflicts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .obsttorte-conflict-list {
+    border-inline-end: none;
+  }
+
+  .obsttorte-conflicts:not(.is-list) .obsttorte-conflict-list,
+  .obsttorte-conflicts.is-list .obsttorte-conflict {
+    display: none;
+  }
+
+  .obsttorte-conflict {
+    padding: var(--size-4-3);
+  }
+
+  .obsttorte-conflict-back {
+    display: inline-flex;
+    align-self: flex-start;
+  }
+}
+
+.obsttorte-status-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.obsttorte-status-summary p {
+  margin: 0;
+}
+
+.obsttorte-headline {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+}
+
+.obsttorte-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: var(--size-2-2);
 }
 
-.obsttorte-muted {
-  color: var(--text-muted);
+.obsttorte-tasks li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+
+.obsttorte-tasks span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

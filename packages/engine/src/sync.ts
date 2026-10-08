@@ -41,7 +41,6 @@ export type InitialStrategy = "merge" | "server" | "device";
 
 export type SyncStatus =
   | "ok"
-  | "paused"
   | "aborted"
   | "needs-initial-choice"
   | "needs-guard-confirm"
@@ -103,7 +102,6 @@ export type SyncRequest = {
 export async function runSync(request: SyncRequest): Promise<SyncRunResult> {
   const now = request.now ?? Date.now;
   const empty = emptyResult();
-  if (request.mode === "paused") return { ...empty, status: "paused" };
   try {
     const repairPull = await repairJournal(request);
     const scanned = await scanLocal(request);

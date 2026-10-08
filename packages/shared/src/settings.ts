@@ -151,7 +151,7 @@ export const DEFAULT_DEVICE_SETTINGS: Omit<DeviceSettings, "installId"> = {
   logVerbosity: "normal",
 };
 
-const SYNC_MODES = new Set<SyncMode>(["bidirectional", "push-only", "pull-only", "paused"]);
+const SYNC_MODES = new Set<SyncMode>(["bidirectional", "push-only", "pull-only"]);
 
 export function parseDeviceSettings(input: unknown, installId: string): DeviceSettings {
   const defaults = DEFAULT_DEVICE_SETTINGS;

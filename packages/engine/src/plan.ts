@@ -100,10 +100,6 @@ export type PlanInput = {
 };
 
 export function buildSyncPlan(input: PlanInput): SyncPlan {
-  if (input.mode === "paused") {
-    return { items: [], skipped: [], guard: { kind: "ok" }, newPluginIds: [], stylePaths: [] };
-  }
-
   const skipped: Array<{ path: string; reason: SkipReason }> = [];
   const skip = (path: string, reason: SkipReason) => {
     if (!skipped.some((item) => item.path === path)) skipped.push({ path, reason });
