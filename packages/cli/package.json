@@ -1,6 +1,6 @@
 {
   "name": "obsttorte",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Set up and update the Obsttorte server on your own Cloudflare account",
   "license": "MIT",
   "repository": {
