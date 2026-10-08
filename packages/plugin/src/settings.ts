@@ -22,7 +22,6 @@ import { formatDateTime, t } from "./i18n";
 export type PluginData = DeviceSettings & {
   reloadPending: string[];
   lastConfirmedAt: number | null;
-  lastSnapshotAt: number | null;
   lastRehashAt: number | null;
   autoSyncPaused: boolean;
   paused: boolean;
@@ -43,16 +42,18 @@ function lines(value: unknown): string[] {
 }
 
 export function loadDeviceSettings(raw: unknown, installId: string): PluginData {
-  const settings = parseDeviceSettings(raw, installId);
   const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const pausedByMode = settings.syncMode === "paused";
+  // 一時停止は以前syncModeの値として保存していた
+  const pausedByMode = record.syncMode === "paused";
+  const settings = parseDeviceSettings(
+    pausedByMode ? { ...record, syncMode: "bidirectional" } : raw,
+    installId,
+  );
   return {
     ...settings,
-    syncMode: pausedByMode ? "bidirectional" : settings.syncMode,
     paused: pausedByMode || record.paused === true,
     reloadPending: stringList(record.reloadPending),
     lastConfirmedAt: typeof record.lastConfirmedAt === "number" ? record.lastConfirmedAt : null,
-    lastSnapshotAt: typeof record.lastSnapshotAt === "number" ? record.lastSnapshotAt : null,
     lastRehashAt: typeof record.lastRehashAt === "number" ? record.lastRehashAt : null,
     autoSyncPaused: record.autoSyncPaused === true,
   };
@@ -64,7 +65,6 @@ export function emptyDeviceSettings(installId: string): PluginData {
     installId,
     reloadPending: [],
     lastConfirmedAt: null,
-    lastSnapshotAt: null,
     lastRehashAt: null,
     autoSyncPaused: false,
     paused: false,
@@ -95,6 +95,7 @@ export type SettingsDeps = {
   saveShared: (settings: SharedSettings) => Promise<void>;
   pluginIds: () => string[];
   connection: () => ConnectionSummary;
+  missingCredentials: () => number;
   checkConnection: () => Promise<string>;
   listDevices: () => Promise<DeviceListing>;
   setPaused: (paused: boolean) => Promise<void>;
@@ -167,12 +168,12 @@ export class ObsttorteSettingTab extends PluginSettingTab {
             type: "page",
             name: t("settings.credentials"),
             displayValue: () => {
-              const missing = this.missingCredentials();
+              const missing = this.deps.missingCredentials();
               return missing > 0
                 ? t("settings.credentialsMissing", { count: missing })
                 : t("settings.credentialsSet");
             },
-            status: () => (this.missingCredentials() > 0 ? "warning" : null),
+            status: () => (this.deps.missingCredentials() > 0 ? "warning" : null),
             items: [
               {
                 type: "group",
@@ -555,17 +556,6 @@ export class ObsttorteSettingTab extends PluginSettingTab {
         ],
       },
     ];
-  }
-
-  private missingCredentials(): number {
-    const data = this.deps.data();
-    const secret = (name: string) => (name ? this.app.secretStorage.getSecret(name) : null);
-    return [
-      isAllowedServerUrl(data.serverUrl),
-      data.accessClientId.length > 0,
-      Boolean(secret(data.accessClientSecretName)),
-      Boolean(secret(data.deviceTokenName)),
-    ].filter((filled) => !filled).length;
   }
 
   private renderConnection(setting: Setting): void {

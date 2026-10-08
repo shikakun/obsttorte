@@ -23,6 +23,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -164,6 +165,7 @@ export type ConflictActions = {
   resolve: (conflict: ConflictRecord, choice: ResolveChoice, text?: string) => Promise<void>;
   resolveAll: (choice: "local" | "remote" | "newer") => Promise<void>;
   takeOver: (strategy: "server" | "device") => Promise<void>;
+  canOpenFile: (path: string) => boolean;
   openFile: (path: string) => void;
   confirm: (message: string, action: string) => Promise<boolean>;
 };
@@ -211,17 +213,24 @@ function showMenuBelow(menu: Menu, anchor: HTMLElement): void {
   menu.showAtPosition({ x: rect.left, y: rect.bottom, width: rect.width });
 }
 
+function conflictRevision(conflict: ConflictRecord): string {
+  return `${conflict.id}:${conflict.localSha}:${conflict.remoteSha}:${conflict.baseSha}`;
+}
+
 function ConflictList({ actions }: { actions: ConflictActions }) {
   const { value: items, error, refresh } = useLoaded(actions.load);
-  useOnSynced(refresh);
+  const syncedDuringAction = useRef(false);
+  useOnSynced(
+    useCallback(() => {
+      syncedDuringAction.current = true;
+      refresh();
+    }, [refresh]),
+  );
   const { busy, run } = useAction();
-  const [selected, setSelected] = useState<ConflictRecord | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [listShown, setListShown] = useState(false);
   const headingId = useId();
-  const current = items?.some((item) => item.id === selected?.id) ? selected : null;
-  useEffect(() => {
-    if (!current && items?.[0]) setSelected(items[0]);
-  }, [current, items]);
+  const current = items?.find((item) => item.id === selectedId) ?? items?.[0] ?? null;
   if (!items) {
     return (
       <section className="obsttorte-view" aria-label={t("conflicts.viewTitle")}>
@@ -237,18 +246,23 @@ function ConflictList({ actions }: { actions: ConflictActions }) {
     );
   }
   const count = items.length;
+  const perform = async (action: () => Promise<void>) => {
+    syncedDuringAction.current = false;
+    const done = await run(action);
+    if (!syncedDuringAction.current) refresh();
+    return done;
+  };
   const bulk = async (choice: Bulk) => {
     const message =
       choice.kind === "choice"
         ? t(`bulk.confirm.${choice.choice}`, { count })
         : t(`bulk.confirm.${choice.strategy}`, { count });
     if (!(await actions.confirm(message, t("bulk.apply")))) return;
-    await run(() =>
+    await perform(() =>
       choice.kind === "choice"
         ? actions.resolveAll(choice.choice)
         : actions.takeOver(choice.strategy),
     );
-    refresh();
   };
   const openBulkMenu = (anchor: HTMLElement) => {
     const menu = new Menu();
@@ -273,10 +287,8 @@ function ConflictList({ actions }: { actions: ConflictActions }) {
   const resolve = (conflict: ConflictRecord, choice: ResolveChoice, text?: string) => {
     const index = items.findIndex((item) => item.id === conflict.id);
     const next = items[index + 1] ?? items[index - 1] ?? null;
-    void run(() => actions.resolve(conflict, choice, text)).then((done) => {
-      if (!done) return;
-      setSelected(next);
-      refresh();
+    void perform(() => actions.resolve(conflict, choice, text)).then((done) => {
+      if (done) setSelectedId(next?.id ?? null);
     });
   };
   return (
@@ -304,7 +316,7 @@ function ConflictList({ actions }: { actions: ConflictActions }) {
                 className="obsttorte-conflict-item"
                 aria-current={item.id === current?.id ? "true" : undefined}
                 onClick={() => {
-                  setSelected(item);
+                  setSelectedId(item.id);
                   setListShown(false);
                 }}
               >
@@ -322,7 +334,7 @@ function ConflictList({ actions }: { actions: ConflictActions }) {
       </nav>
       {current ? (
         <ConflictDetail
-          key={current.id}
+          key={conflictRevision(current)}
           conflict={current}
           actions={actions}
           busy={busy}
@@ -351,9 +363,8 @@ function ConflictDetail({
   onResolve: (conflict: ConflictRecord, choice: ResolveChoice, text?: string) => void;
   onShowList: () => void;
 }) {
-  const { value: texts, error } = useLoaded(
-    useCallback(() => actions.texts(conflict), [actions, conflict]),
-  );
+  const [loadTexts] = useState(() => () => actions.texts(conflict));
+  const { value: texts, error } = useLoaded(loadTexts);
   const [draft, setDraft] = useState<string | null>(null);
   const titleId = useId();
   const binary = texts ? isBinary(texts.local) || isBinary(texts.remote) : false;
@@ -407,10 +418,12 @@ function ConflictDetail({
       </button>
       <header className="obsttorte-conflict-header">
         <h2 id={titleId}>{conflict.path}</h2>
-        <ActionButton
-          label={t("conflict.openFile")}
-          onClick={() => actions.openFile(conflict.path)}
-        />
+        {actions.canOpenFile(conflict.path) ? (
+          <ActionButton
+            label={t("conflict.openFile")}
+            onClick={() => actions.openFile(conflict.path)}
+          />
+        ) : null}
       </header>
       <ul className="obsttorte-sides" aria-label={t("conflict.sides")}>
         {sides.map((side) => (
@@ -530,7 +543,7 @@ function ConflictTabs({ texts }: { texts: ConflictTexts }) {
 }
 
 function Comparison({ local, remote }: { local: string; remote: string }) {
-  const hunks = diffLines(remote, local);
+  const hunks = useMemo(() => diffLines(remote, local), [remote, local]);
   if (hunks.length === 0) return <p>{t("conflict.same")}</p>;
   const blocks = [];
   let lineOffset = 0;

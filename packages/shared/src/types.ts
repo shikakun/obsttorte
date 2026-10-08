@@ -1,4 +1,4 @@
-export type SyncMode = "bidirectional" | "push-only" | "pull-only" | "paused";
+export type SyncMode = "bidirectional" | "push-only" | "pull-only";
 
 export type IndexEntry = {
   path: string;

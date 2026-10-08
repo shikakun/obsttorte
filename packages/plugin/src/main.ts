@@ -113,11 +113,15 @@ function stronger(current: SyncKind | null, next: SyncKind): SyncKind {
 export default class ObsttortePlugin extends Plugin {
   private data: PluginData = emptyDeviceSettings("");
   private status = this.addStatusBarItem();
+  private statusIconEl = this.status.createSpan({ cls: "obsttorte-status-icon" });
+  private statusIconName = "";
+  private statusTextEl = this.status.createSpan();
+  private renderFrame = 0;
   private running = false;
   private queued: SyncKind | null = null;
   private selfWrites = new Set<string>();
   private dirty = new Set<string>();
-  private stopped: "ok" | "setup" | "auth" | "version" | "error" | "paused" = "ok";
+  private stopped: "ok" | "setup" | "auth" | "version" | "error" = "ok";
   private problem: string | null = null;
   private conflicts = 0;
   private quarantine: string[] = [];
@@ -172,6 +176,7 @@ export default class ObsttortePlugin extends Plugin {
         saveShared: (settings) => this.persistShared(settings),
         pluginIds: () => this.pluginIds,
         connection: () => this.connectionSummary(),
+        missingCredentials: () => this.missingFields().length,
         checkConnection: () => this.checkConnection(),
         listDevices: () => this.deviceListing(),
         setPaused: (paused) => this.setPaused(paused),
@@ -251,6 +256,7 @@ export default class ObsttortePlugin extends Plugin {
 
   onunload(): void {
     document.removeEventListener("visibilitychange", this.onVisible);
+    window.cancelAnimationFrame(this.renderFrame);
     this.cancelScheduled();
     void Promise.race([
       this.requestSync("push"),
@@ -322,7 +328,11 @@ export default class ObsttortePlugin extends Plugin {
               await this.requestSync("full");
             }
           },
-          openFile: (path) => void this.app.workspace.openLinkText(path, "", "tab"),
+          canOpenFile: (path) => this.app.vault.getFileByPath(path) !== null,
+          openFile: (path) => {
+            const file = this.app.vault.getFileByPath(path);
+            if (file) void this.app.workspace.getLeaf("tab").openFile(file);
+          },
           confirm: (message, action) => this.confirm(message, action),
         }),
     );
@@ -458,11 +468,7 @@ export default class ObsttortePlugin extends Plugin {
   private async requestSync(kind: SyncKind): Promise<void> {
     // Vaultを読み込み終えるまではファイルの一覧が欠けていて、消していないファイルを削除と取り違える
     if (!this.app.workspace.layoutReady) return;
-    if (this.data.paused) {
-      this.stopped = "paused";
-      this.renderStatus();
-      return;
-    }
+    if (this.data.paused) return;
     if (
       kind === "partial" &&
       (this.data.autoSyncPaused || this.stopped === "auth" || this.stopped === "version")
@@ -547,7 +553,7 @@ export default class ObsttortePlugin extends Plugin {
         dryRun: options.dryRun,
         onProgress: (done, total) => {
           this.progress = { done, total };
-          this.renderStatus();
+          this.renderStatusSoon();
         },
       });
       if (!options.dryRun) {
@@ -970,9 +976,10 @@ export default class ObsttortePlugin extends Plugin {
       try {
         await api.health();
         text = t("connection.ok");
-        if (this.stopped !== "ok" && this.stopped !== "paused") {
+        if (this.stopped !== "ok") {
           this.stopped = "ok";
           this.problem = null;
+          this.renderStatus();
           void this.requestSync("full");
         }
       } catch (error) {
@@ -990,13 +997,17 @@ export default class ObsttortePlugin extends Plugin {
     if (this.data.serverUrl && !isAllowedServerUrl(this.data.serverUrl)) {
       return t("problem.insecureUrl");
     }
-    const fields = [
-      this.data.serverUrl ? null : t("field.serverUrl"),
-      this.data.accessClientId ? null : t("field.accessClientId"),
-      this.secret(this.data.accessClientSecretName) ? null : t("field.accessClientSecret"),
-      this.secret(this.data.deviceTokenName) ? null : t("field.deviceToken"),
-    ].filter((field): field is string => field !== null);
+    const fields = this.missingFields().map((field) => t(`field.${field}`));
     return t("problem.missing", { fields: formatList(fields) });
+  }
+
+  private missingFields(): string[] {
+    return [
+      isAllowedServerUrl(this.data.serverUrl) ? null : "serverUrl",
+      this.data.accessClientId ? null : "accessClientId",
+      this.secret(this.data.accessClientSecretName) ? null : "accessClientSecret",
+      this.secret(this.data.deviceTokenName) ? null : "deviceToken",
+    ].filter((field): field is string => field !== null);
   }
 
   private rehashDue(): boolean {
@@ -1009,13 +1020,16 @@ export default class ObsttortePlugin extends Plugin {
     this.status.classList.toggle("is-warning", !stopped && this.needsAttention());
     this.status.classList.toggle("is-error", stopped);
     const text = this.statusText();
-    this.status.empty();
-    setIcon(this.status.createSpan({ cls: "obsttorte-status-icon" }), this.statusIcon());
-    this.status.createSpan({ text });
+    const icon = this.statusIcon();
+    if (this.statusIconName !== icon) {
+      setIcon(this.statusIconEl, icon);
+      this.statusIconName = icon;
+    }
+    this.statusTextEl.setText(text);
     // ツールチップはaria-labelも兼ねるので、読み上げでも状態と理由が伝わるようにする
     setTooltip(
       this.status,
-      [`Torte: ${text}`, this.problem, this.statusAction().hint].filter(Boolean).join("\n"),
+      [`Obsttorte: ${text}`, this.problem, this.statusAction().hint].filter(Boolean).join("\n"),
       { placement: "top" },
     );
     const fresh = new Set(this.newPluginIds);
@@ -1040,18 +1054,20 @@ export default class ObsttortePlugin extends Plugin {
     this.events.trigger("status");
   }
 
+  private renderStatusSoon(): void {
+    if (this.renderFrame !== 0) return;
+    this.renderFrame = window.requestAnimationFrame(() => {
+      this.renderFrame = 0;
+      this.renderStatus();
+    });
+  }
+
   private isPaused(): boolean {
-    return this.stopped === "paused" || this.data.paused || this.data.autoSyncPaused;
+    return this.data.paused || this.data.autoSyncPaused;
   }
 
   private isStopped(): boolean {
-    return (
-      this.stopped === "setup" ||
-      this.stopped === "auth" ||
-      this.stopped === "error" ||
-      this.stopped === "version" ||
-      (this.data.autoSyncPaused && !this.data.paused)
-    );
+    return !this.data.paused && (this.stopped !== "ok" || this.data.autoSyncPaused);
   }
 
   private needsAttention(): boolean {
@@ -1306,12 +1322,6 @@ export default class ObsttortePlugin extends Plugin {
             historyBytes: formatBytes(byteCount(storage?.result.historyOnlyBytes)),
           }),
         );
-      }
-      const snapshots = await api.snapshots();
-      const latest = snapshots[0]?.createdAt ?? null;
-      if (latest !== this.data.lastSnapshotAt) {
-        this.data.lastSnapshotAt = latest;
-        await this.persist(this.data);
       }
     } catch {
       // 同じ失敗は続く同期で報告される
