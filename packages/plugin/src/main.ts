@@ -323,6 +323,8 @@ export default class ObsttortePlugin extends Plugin {
               await this.requestSync("full");
             }
           },
+          openFile: (path) => void this.app.workspace.openLinkText(path, "", "tab"),
+          confirm: (message, action) => this.confirm(message, action),
         }),
     );
     const quarantine: QuarantineActions = {
@@ -1133,7 +1135,35 @@ export default class ObsttortePlugin extends Plugin {
   }
 
   private async openView(type: string): Promise<void> {
-    await this.app.workspace.ensureSideLeaf(type, "right", { active: true, reveal: true });
+    const workspace = this.app.workspace;
+    if (type !== CONFLICT_VIEW_TYPE) {
+      await workspace.ensureSideLeaf(type, "right", { active: true, reveal: true });
+      return;
+    }
+    const leaf = workspace.getLeavesOfType(type)[0] ?? workspace.getLeaf("tab");
+    await leaf.setViewState({ type, active: true });
+    await workspace.revealLeaf(leaf);
+  }
+
+  private confirm(message: string, action: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      let confirmed = false;
+      const modal = new Modal(this.app);
+      modal.contentEl.createEl("p", { text: message });
+      new Setting(modal.contentEl)
+        .addButton((button) => button.setButtonText(t("bulk.cancel")).onClick(() => modal.close()))
+        .addButton((button) =>
+          button
+            .setButtonText(action)
+            .setDestructive()
+            .onClick(() => {
+              confirmed = true;
+              modal.close();
+            }),
+        );
+      modal.onClose = () => resolve(confirmed);
+      modal.open();
+    });
   }
 
   /**
