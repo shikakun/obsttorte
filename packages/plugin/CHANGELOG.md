@@ -1,5 +1,11 @@
 # @obsttorte/plugin
 
+## 0.2.0
+
+### Minor Changes
+
+- cfee929: データの競合を解決するUIや設定画面を刷新し、ステータスバーを改善しました
+
 ## 0.1.2
 
 ### Patch Changes
