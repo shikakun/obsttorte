@@ -39,6 +39,7 @@ import { formatBytes, formatList, formatRelative, setLanguage, t } from "./i18n"
 import { ObsidianVaultPort } from "./obsidian-vault-port";
 import { describeFailure, failureOf } from "./problems";
 import {
+  type ConnectionSummary,
   type DeviceListing,
   emptyDeviceSettings,
   isAllowedServerUrl,
@@ -164,23 +165,21 @@ export default class ObsttortePlugin extends Plugin {
     setLanguage(this.data.languageOverride);
     this.registerViews();
     this.addSettingTab(
-      new ObsttorteSettingTab(
-        this.app,
-        this,
-        () => this.data,
-        (data) => this.persist(data),
-        (settings) => this.persistShared(settings),
-        () => this.checkConnection(),
-        () => this.shared,
-        () => this.deviceListing(),
-        () => this.pluginIds,
-        {
-          syncNow: () => void this.requestSync("full"),
-          exportPlan: () => void this.copyPlan(false),
-          openSnapshots: () => void this.openView(SNAPSHOT_VIEW_TYPE),
-          rebuildIndex: () => this.rebuildIndex(),
-        },
-      ),
+      new ObsttorteSettingTab(this.app, this, {
+        data: () => this.data,
+        save: (data) => this.persist(data),
+        shared: () => this.shared,
+        saveShared: (settings) => this.persistShared(settings),
+        pluginIds: () => this.pluginIds,
+        connection: () => this.connectionSummary(),
+        checkConnection: () => this.checkConnection(),
+        listDevices: () => this.deviceListing(),
+        setPaused: (paused) => this.setPaused(paused),
+        exportPlan: (redacted) => void this.copyPlan(redacted),
+        rebuildIndex: () => this.rebuildIndex(),
+        purge: () => void this.askPurge(),
+        confirm: (message, action) => this.confirm(message, action),
+      }),
     );
     this.addCommand({
       id: "sync",
@@ -459,7 +458,7 @@ export default class ObsttortePlugin extends Plugin {
   private async requestSync(kind: SyncKind): Promise<void> {
     // Vaultを読み込み終えるまではファイルの一覧が欠けていて、消していないファイルを削除と取り違える
     if (!this.app.workspace.layoutReady) return;
-    if (this.data.syncMode === "paused") {
+    if (this.data.paused) {
       this.stopped = "paused";
       this.renderStatus();
       return;
@@ -809,7 +808,7 @@ export default class ObsttortePlugin extends Plugin {
       .addButton((button) =>
         button.setButtonText(t("guard.pause")).onClick(() => {
           modal.close();
-          void this.persist({ ...this.data, syncMode: "paused" });
+          void this.setPaused(true);
         }),
       );
     modal.open();
@@ -935,7 +934,7 @@ export default class ObsttortePlugin extends Plugin {
     try {
       const devices = await api.devices();
       await this.rememberDevices(devices.map((device) => device.id));
-      return { devices };
+      return { devices, currentId: this.deviceId };
     } catch (error) {
       return { problem: describeFailure(failureOf(error), "action") };
     }
@@ -973,10 +972,14 @@ export default class ObsttortePlugin extends Plugin {
         text = t("connection.ok");
         if (this.stopped !== "ok" && this.stopped !== "paused") {
           this.stopped = "ok";
+          this.problem = null;
           void this.requestSync("full");
         }
       } catch (error) {
         text = describeFailure(failureOf(error));
+        this.problem = text;
+        if (this.stopped === "ok") this.stopped = "error";
+        this.renderStatus();
       }
     }
     new Notice(text);
@@ -1038,7 +1041,7 @@ export default class ObsttortePlugin extends Plugin {
   }
 
   private isPaused(): boolean {
-    return this.stopped === "paused" || this.data.syncMode === "paused" || this.data.autoSyncPaused;
+    return this.stopped === "paused" || this.data.paused || this.data.autoSyncPaused;
   }
 
   private isStopped(): boolean {
@@ -1047,7 +1050,7 @@ export default class ObsttortePlugin extends Plugin {
       this.stopped === "auth" ||
       this.stopped === "error" ||
       this.stopped === "version" ||
-      (this.data.autoSyncPaused && this.data.syncMode !== "paused")
+      (this.data.autoSyncPaused && !this.data.paused)
     );
   }
 
@@ -1075,9 +1078,7 @@ export default class ObsttortePlugin extends Plugin {
       return t("status.syncing", { done: this.progress.done, total: this.progress.total });
     }
     if (this.isPaused()) {
-      return this.data.autoSyncPaused && this.data.syncMode !== "paused"
-        ? t("status.error")
-        : t("status.paused");
+      return this.data.autoSyncPaused && !this.data.paused ? t("status.error") : t("status.paused");
     }
     if (this.stopped === "setup") return t("status.setup");
     if (this.stopped === "auth") return t("status.signIn");
@@ -1115,18 +1116,36 @@ export default class ObsttortePlugin extends Plugin {
   }
 
   private async togglePause(): Promise<void> {
-    if (!this.isPaused()) {
-      await this.persist({ ...this.data, syncMode: "paused" });
+    await this.setPaused(!this.isPaused());
+  }
+
+  private async setPaused(paused: boolean): Promise<void> {
+    if (paused) {
+      await this.persist({ ...this.data, paused: true });
       return;
     }
     this.failureStreak = 0;
     this.stopped = "ok";
-    await this.persist({
-      ...this.data,
-      autoSyncPaused: false,
-      syncMode: this.data.syncMode === "paused" ? "bidirectional" : this.data.syncMode,
-    });
+    await this.persist({ ...this.data, paused: false, autoSyncPaused: false });
     await this.requestSync("full");
+  }
+
+  private connectionSummary(): ConnectionSummary {
+    if (!this.api()) {
+      return { ok: false, title: t("status.setup"), detail: this.missingConnection() };
+    }
+    if (this.isStopped())
+      return { ok: false, title: this.statusText(), detail: this.problem ?? "" };
+    return {
+      ok: true,
+      title: t("settings.connected"),
+      detail: this.deviceId
+        ? t("settings.connectedAs", {
+            device: this.deviceName,
+            time: formatRelative(this.data.lastConfirmedAt),
+          })
+        : t("status.lastSynced", { time: formatRelative(this.data.lastConfirmedAt) }),
+    };
   }
 
   private listen(name: string, listener: () => void): () => void {

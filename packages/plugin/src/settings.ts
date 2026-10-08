@@ -15,6 +15,7 @@ import {
   type Setting,
   type SettingDefinitionItem,
   type SettingGroupItem,
+  setIcon,
 } from "obsidian";
 import { formatDateTime, t } from "./i18n";
 
@@ -24,6 +25,7 @@ export type PluginData = DeviceSettings & {
   lastSnapshotAt: number | null;
   lastRehashAt: number | null;
   autoSyncPaused: boolean;
+  paused: boolean;
 };
 
 function stringList(value: unknown): string[] {
@@ -43,8 +45,11 @@ function lines(value: unknown): string[] {
 export function loadDeviceSettings(raw: unknown, installId: string): PluginData {
   const settings = parseDeviceSettings(raw, installId);
   const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const pausedByMode = settings.syncMode === "paused";
   return {
     ...settings,
+    syncMode: pausedByMode ? "bidirectional" : settings.syncMode,
+    paused: pausedByMode || record.paused === true,
     reloadPending: stringList(record.reloadPending),
     lastConfirmedAt: typeof record.lastConfirmedAt === "number" ? record.lastConfirmedAt : null,
     lastSnapshotAt: typeof record.lastSnapshotAt === "number" ? record.lastSnapshotAt : null,
@@ -62,6 +67,7 @@ export function emptyDeviceSettings(installId: string): PluginData {
     lastSnapshotAt: null,
     lastRehashAt: null,
     autoSyncPaused: false,
+    paused: false,
   };
 }
 
@@ -78,9 +84,28 @@ export async function writeSharedSettings(app: App, settings: SharedSettings): P
   );
 }
 
-export type DeviceListing = { devices: DeviceSummary[] } | { problem: string };
+export type DeviceListing = { devices: DeviceSummary[]; currentId: string } | { problem: string };
+
+export type ConnectionSummary = { ok: boolean; title: string; detail: string };
+
+export type SettingsDeps = {
+  data: () => PluginData;
+  save: (data: PluginData) => Promise<void>;
+  shared: () => SharedSettings;
+  saveShared: (settings: SharedSettings) => Promise<void>;
+  pluginIds: () => string[];
+  connection: () => ConnectionSummary;
+  checkConnection: () => Promise<string>;
+  listDevices: () => Promise<DeviceListing>;
+  setPaused: (paused: boolean) => Promise<void>;
+  exportPlan: (redacted: boolean) => void;
+  rebuildIndex: () => Promise<void>;
+  purge: () => void;
+  confirm: (message: string, action: string) => Promise<boolean>;
+};
 
 const PLUGIN_DATA_PREFIX = "pluginData:";
+const CODE_PLUGIN_PREFIX = "codePlugin:";
 const RATIO_KEYS = new Set(["maxDeletionRatio", "maxChangeRatio"]);
 
 function wholeNumber(min: number) {
@@ -107,73 +132,88 @@ function serverUrl(value: string) {
   return t("validate.url");
 }
 
+function numberControl(key: string, min: number) {
+  return { type: "number" as const, key, min, step: 1, validate: wholeNumber(min) };
+}
+
+function ratioControl(key: string) {
+  return {
+    type: "number" as const,
+    key,
+    min: 0,
+    max: 100,
+    step: "any" as const,
+    validate: percent,
+  };
+}
+
 export class ObsttorteSettingTab extends PluginSettingTab {
   constructor(
     app: App,
     private readonly plugin: Plugin,
-    private readonly data: () => PluginData,
-    private readonly save: (data: PluginData) => Promise<void>,
-    private readonly saveShared: (settings: SharedSettings) => Promise<void>,
-    private readonly checkConnection: () => Promise<string>,
-    private readonly sharedNow: () => SharedSettings,
-    private readonly listDevices: () => Promise<DeviceListing>,
-    private readonly pluginIds: () => string[],
-    private readonly actions: {
-      syncNow: () => void;
-      exportPlan: () => void;
-      openSnapshots: () => void;
-      rebuildIndex: () => Promise<void>;
-    },
+    private readonly deps: SettingsDeps,
   ) {
     super(app, plugin);
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const shared = (heading: string) => `${t(heading)} — ${t("settings.shared")}`;
     return [
       {
         type: "group",
         heading: t("settings.connection"),
         items: [
+          { name: t("settings.connection"), render: (setting) => this.renderConnection(setting) },
           {
-            name: t("settings.serverUrl"),
-            desc: t("settings.serverUrlDesc"),
-            control: {
-              type: "text",
-              key: "serverUrl",
-              placeholder: "https://obsttorte.example.workers.dev",
-              validate: serverUrl,
+            type: "page",
+            name: t("settings.credentials"),
+            displayValue: () => {
+              const missing = this.missingCredentials();
+              return missing > 0
+                ? t("settings.credentialsMissing", { count: missing })
+                : t("settings.credentialsSet");
             },
-          },
-          {
-            name: t("settings.accessClientId"),
-            desc: t("settings.accessClientIdDesc"),
-            control: { type: "text", key: "accessClientId" },
-          },
-          this.secretSetting(
-            t("settings.accessClientSecret"),
-            t("settings.accessClientSecretDesc"),
-            "accessClientSecretName",
-          ),
-          this.secretSetting(
-            t("settings.deviceToken"),
-            t("settings.deviceTokenDesc"),
-            "deviceTokenName",
-          ),
-          {
-            name: t("connection.check"),
-            desc: t("settings.checkDesc"),
-            action: () => void this.checkConnection(),
+            status: () => (this.missingCredentials() > 0 ? "warning" : null),
+            items: [
+              {
+                type: "group",
+                items: [
+                  {
+                    name: t("settings.serverUrl"),
+                    desc: t("settings.serverUrlDesc"),
+                    control: {
+                      type: "text",
+                      key: "serverUrl",
+                      placeholder: "https://obsttorte.example.workers.dev",
+                      validate: serverUrl,
+                    },
+                  },
+                  {
+                    name: t("settings.accessClientId"),
+                    desc: t("settings.accessClientIdDesc"),
+                    control: { type: "text", key: "accessClientId" },
+                  },
+                  this.secretSetting(
+                    t("settings.accessClientSecret"),
+                    t("settings.accessClientSecretDesc"),
+                    "accessClientSecretName",
+                  ),
+                  this.secretSetting(
+                    t("settings.deviceToken"),
+                    t("settings.deviceTokenDesc"),
+                    "deviceTokenName",
+                  ),
+                ],
+              },
+            ],
           },
         ],
       },
       {
         type: "group",
-        heading: t("settings.sync"),
+        heading: t("settings.thisDevice"),
         items: [
           {
             name: t("settings.syncMode"),
-            desc: t("settings.syncModeDesc"),
             control: {
               type: "dropdown",
               key: "syncMode",
@@ -181,177 +221,113 @@ export class ObsttorteSettingTab extends PluginSettingTab {
                 bidirectional: t("settings.mode.bidirectional"),
                 "push-only": t("settings.mode.push-only"),
                 "pull-only": t("settings.mode.pull-only"),
-                paused: t("settings.mode.paused"),
               },
             },
           },
-          {
-            name: t("settings.interval"),
-            desc: t("settings.intervalDesc"),
-            control: {
-              type: "number",
-              key: "syncIntervalMinutes",
-              min: 1,
-              step: 1,
-              validate: wholeNumber(1),
-            },
-          },
-          { name: t("settings.syncNow"), action: () => this.actions.syncNow() },
-          {
-            name: t("settings.exportPlan"),
-            desc: t("settings.exportPlanDesc"),
-            action: () => this.actions.exportPlan(),
-          },
+          { name: t("settings.paused"), control: { type: "toggle", key: "paused" } },
+          { name: t("settings.interval"), control: numberControl("syncIntervalMinutes", 1) },
         ],
       },
       {
         type: "group",
-        heading: shared("settings.protection"),
+        heading: t("settings.allDevices"),
         items: [
+          {
+            type: "page",
+            name: t("settings.exclusions"),
+            displayValue: () => {
+              const count = this.deps.shared().exclusions.length;
+              return count > 0 ? t("settings.patternCount", { count }) : t("settings.none");
+            },
+            items: [
+              {
+                type: "group",
+                items: [
+                  {
+                    name: t("settings.exclusionPatterns"),
+                    desc: t("settings.exclusionPatternsDesc"),
+                    control: {
+                      type: "textarea",
+                      key: "exclusions",
+                      placeholder: "Private/**\n**/*.pdf",
+                      rows: 4,
+                    },
+                  },
+                  {
+                    name: t("settings.fixedExclusions"),
+                    render: (setting) => this.renderFixedExclusions(setting),
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: "page",
+            name: t("settings.plugins"),
+            displayValue: () => {
+              const pending = this.pendingPluginData();
+              return pending > 0
+                ? t("settings.pluginDataPending", { count: pending })
+                : t("settings.pluginCount", { count: this.otherPluginIds().length });
+            },
+            status: () => (this.pendingPluginData() > 0 ? "warning" : null),
+            items: this.pluginItems(),
+          },
           {
             name: t("settings.autoMerge"),
             desc: t("settings.autoMergeDesc"),
             control: { type: "toggle", key: "autoMerge" },
           },
           {
-            name: t("settings.maxDeletions"),
-            desc: t("settings.maxDeletionsDesc"),
-            control: {
-              type: "number",
-              key: "maxDeletions",
-              min: 0,
-              step: 1,
-              validate: wholeNumber(0),
+            type: "page",
+            name: t("settings.guard"),
+            displayValue: () => {
+              const guard = this.deps.shared().bulkGuard;
+              return t("settings.guardSummary", {
+                deletions: guard.maxDeletions,
+                ratio: Math.round(guard.maxDeletionRatio * 1000) / 10,
+              });
             },
+            items: [
+              {
+                type: "group",
+                items: [
+                  { name: t("settings.maxDeletions"), control: numberControl("maxDeletions", 0) },
+                  {
+                    name: t("settings.maxDeletionRatio"),
+                    control: ratioControl("maxDeletionRatio"),
+                  },
+                  { name: t("settings.maxChangeRatio"), control: ratioControl("maxChangeRatio") },
+                  {
+                    name: t("settings.shrinkToZero"),
+                    desc: t("settings.shrinkToZeroDesc"),
+                    control: numberControl("maxShrinkToZero", 0),
+                  },
+                ],
+              },
+            ],
           },
           {
-            name: t("settings.maxDeletionRatio"),
-            desc: t("settings.maxDeletionRatioDesc"),
-            control: {
-              type: "number",
-              key: "maxDeletionRatio",
-              min: 0,
-              max: 100,
-              step: "any",
-              validate: percent,
+            type: "page",
+            name: t("settings.retention"),
+            displayValue: () => {
+              const retention = this.deps.shared().snapshotRetention;
+              return t("settings.retentionSummary", {
+                daily: retention.dailyDays,
+                monthly: retention.monthlyMonths,
+              });
             },
+            items: [
+              {
+                type: "group",
+                items: [
+                  { name: t("settings.dailyDays"), control: numberControl("dailyDays", 0) },
+                  { name: t("settings.monthlyMonths"), control: numberControl("monthlyMonths", 0) },
+                  { name: t("settings.deviceDays"), control: numberControl("deviceDays", 0) },
+                ],
+              },
+            ],
           },
-          {
-            name: t("settings.maxChangeRatio"),
-            desc: t("settings.maxChangeRatioDesc"),
-            control: {
-              type: "number",
-              key: "maxChangeRatio",
-              min: 0,
-              max: 100,
-              step: "any",
-              validate: percent,
-            },
-          },
-          {
-            name: t("settings.shrinkToZero"),
-            desc: t("settings.shrinkToZeroDesc"),
-            control: {
-              type: "number",
-              key: "maxShrinkToZero",
-              min: 0,
-              step: 1,
-              validate: wholeNumber(0),
-            },
-          },
-        ],
-      },
-      {
-        type: "group",
-        heading: shared("settings.plugins"),
-        items: [
-          { name: t("settings.pluginData"), desc: t("settings.pluginDataDesc") },
-          ...this.pluginDataItems(),
-          {
-            name: t("settings.codePlugins"),
-            desc: t("settings.codePluginsDesc"),
-            control: { type: "textarea", key: "codeConfiguredPluginIds", rows: 4 },
-          },
-        ],
-      },
-      {
-        type: "group",
-        heading: shared("settings.exclusions"),
-        items: [
-          {
-            name: t("settings.exclusionPatterns"),
-            desc: t("settings.exclusionPatternsDesc"),
-            control: {
-              type: "textarea",
-              key: "exclusions",
-              placeholder: "Private/**\n**/*.pdf",
-              rows: 4,
-            },
-          },
-          {
-            name: t("settings.fixedExclusions"),
-            render: (setting) => {
-              const config = this.app.vault.configDir;
-              const selfId = this.plugin.manifest.id;
-              setting.setDesc(
-                createFragment((fragment) => {
-                  fragment.createDiv({ text: t("settings.fixedExclusionsDesc") });
-                  fragment.createDiv({
-                    cls: "obsttorte-fixed-exclusions",
-                    text: [
-                      `${config}/plugins/${selfId}/`,
-                      `${config}/workspace.json`,
-                      `${config}/workspace-mobile.json`,
-                      `${config}/workspaces.json`,
-                      ".trash/",
-                      ".DS_Store, Thumbs.db, desktop.ini",
-                      "*.tmp, *.swp, ~$*, .#*",
-                    ].join("\n"),
-                  });
-                }),
-              );
-            },
-          },
-        ],
-      },
-      {
-        type: "group",
-        heading: shared("settings.history"),
-        items: [
-          {
-            name: t("settings.dailyDays"),
-            desc: t("settings.dailyDaysDesc"),
-            control: {
-              type: "number",
-              key: "dailyDays",
-              min: 0,
-              step: 1,
-              validate: wholeNumber(0),
-            },
-          },
-          {
-            name: t("settings.monthlyMonths"),
-            desc: t("settings.monthlyMonthsDesc"),
-            control: {
-              type: "number",
-              key: "monthlyMonths",
-              min: 0,
-              step: 1,
-              validate: wholeNumber(0),
-            },
-          },
-          {
-            name: t("settings.deviceDays"),
-            desc: t("settings.deviceDaysDesc"),
-            control: {
-              type: "number",
-              key: "deviceDays",
-              min: 0,
-              step: 1,
-              validate: wholeNumber(0),
-            },
-          },
-          { name: t("settings.openSnapshots"), action: () => this.actions.openSnapshots() },
         ],
       },
       {
@@ -359,8 +335,19 @@ export class ObsttorteSettingTab extends PluginSettingTab {
         heading: t("settings.devices"),
         items: [
           {
+            type: "page",
             name: t("settings.registeredDevices"),
-            render: (setting) => this.renderDevices(setting),
+            items: [
+              {
+                type: "group",
+                items: [
+                  {
+                    name: t("settings.registeredDevices"),
+                    render: (setting) => this.renderDevices(setting),
+                  },
+                ],
+              },
+            ],
           },
         ],
       },
@@ -378,7 +365,6 @@ export class ObsttorteSettingTab extends PluginSettingTab {
           },
           {
             name: t("settings.logVerbosity"),
-            desc: t("settings.logVerbosityDesc"),
             control: {
               type: "dropdown",
               key: "logVerbosity",
@@ -389,9 +375,25 @@ export class ObsttorteSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: t("settings.rebuildIndex"),
-            desc: t("settings.rebuildIndexDesc"),
-            action: () => void this.actions.rebuildIndex(),
+            type: "page",
+            name: t("settings.troubleshooting"),
+            items: [
+              {
+                type: "group",
+                items: [
+                  { name: t("commands.exportPlan"), action: () => this.deps.exportPlan(false) },
+                  {
+                    name: t("commands.exportPlanRedacted"),
+                    action: () => this.deps.exportPlan(true),
+                  },
+                  {
+                    name: t("settings.rebuildIndex"),
+                    action: () => void this.rebuildIndex(),
+                  },
+                  { name: t("commands.purge"), action: () => this.deps.purge() },
+                ],
+              },
+            ],
           },
         ],
       },
@@ -399,11 +401,15 @@ export class ObsttorteSettingTab extends PluginSettingTab {
   }
 
   getControlValue(key: string): unknown {
-    const shared = this.sharedNow();
+    const shared = this.deps.shared();
     if (key.startsWith(PLUGIN_DATA_PREFIX)) {
       const choice = shared.pluginDataSync[key.slice(PLUGIN_DATA_PREFIX.length)];
       return choice === undefined ? "ask" : choice ? "sync" : "skip";
     }
+    if (key.startsWith(CODE_PLUGIN_PREFIX)) {
+      return shared.codeConfiguredPluginIds.includes(key.slice(CODE_PLUGIN_PREFIX.length));
+    }
+    if (key === "codeConfiguredElsewhere") return this.codePluginsElsewhere().join("\n");
     if (key === "autoMerge") return shared.autoMerge;
     if (key === "exclusions") return shared.exclusions.join("\n");
     if (key === "maxDeletions") return shared.bulkGuard.maxDeletions;
@@ -416,43 +422,63 @@ export class ObsttorteSettingTab extends PluginSettingTab {
     if (key === "dailyDays") return shared.snapshotRetention.dailyDays;
     if (key === "monthlyMonths") return shared.snapshotRetention.monthlyMonths;
     if (key === "deviceDays") return shared.snapshotRetention.deviceDays;
-    if (key === "codeConfiguredPluginIds") return shared.codeConfiguredPluginIds.join("\n");
-    if (key === "languageOverride") return this.data().languageOverride ?? "";
-    return this.data()[key as keyof PluginData];
+    if (key === "languageOverride") return this.deps.data().languageOverride ?? "";
+    return this.deps.data()[key as keyof PluginData];
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
-    const shared = this.sharedNow();
+    const shared = this.deps.shared();
     if (key.startsWith(PLUGIN_DATA_PREFIX)) {
       const id = key.slice(PLUGIN_DATA_PREFIX.length);
       const { [id]: _, ...rest } = shared.pluginDataSync;
       const pluginDataSync = value === "ask" ? rest : { ...rest, [id]: value === "sync" };
-      await this.saveShared({ ...shared, pluginDataSync });
+      await this.deps.saveShared({ ...shared, pluginDataSync });
+      return;
+    }
+    if (key.startsWith(CODE_PLUGIN_PREFIX)) {
+      const id = key.slice(CODE_PLUGIN_PREFIX.length);
+      const others = shared.codeConfiguredPluginIds.filter((item) => item !== id);
+      const codeConfiguredPluginIds = value === true ? [...others, id] : others;
+      await this.deps.saveShared({ ...shared, codeConfiguredPluginIds });
+      return;
+    }
+    if (key === "codeConfiguredElsewhere") {
+      const installed = new Set(this.otherPluginIds());
+      const kept = shared.codeConfiguredPluginIds.filter((id) => installed.has(id));
+      const added = lines(value).filter((id) => !installed.has(id));
+      await this.deps.saveShared({ ...shared, codeConfiguredPluginIds: [...kept, ...added] });
       return;
     }
     if (key === "autoMerge") {
-      await this.saveShared({ ...shared, autoMerge: value === true });
+      await this.deps.saveShared({ ...shared, autoMerge: value === true });
       return;
     }
-    if (key === "codeConfiguredPluginIds" || key === "exclusions") {
-      await this.saveShared({ ...shared, [key]: lines(value) });
+    if (key === "exclusions") {
+      await this.deps.saveShared({ ...shared, exclusions: lines(value) });
       return;
     }
     if (key === "maxDeletions" || key === "maxShrinkToZero" || RATIO_KEYS.has(key)) {
       const number = RATIO_KEYS.has(key) ? Number(value) / 100 : Number(value);
-      await this.saveShared({ ...shared, bulkGuard: { ...shared.bulkGuard, [key]: number } });
+      await this.deps.saveShared({
+        ...shared,
+        bulkGuard: { ...shared.bulkGuard, [key]: number },
+      });
       return;
     }
     if (key === "dailyDays" || key === "monthlyMonths" || key === "deviceDays") {
-      await this.saveShared({
+      await this.deps.saveShared({
         ...shared,
         snapshotRetention: { ...shared.snapshotRetention, [key]: Number(value) },
       });
       return;
     }
+    if (key === "paused") {
+      await this.deps.setPaused(value === true);
+      return;
+    }
     if (key === "languageOverride") {
-      await this.save({
-        ...this.data(),
+      await this.deps.save({
+        ...this.deps.data(),
         languageOverride: typeof value === "string" && value.length > 0 ? value : null,
       });
       // 新しい言語で項目名と説明を描き直す
@@ -460,32 +486,132 @@ export class ObsttorteSettingTab extends PluginSettingTab {
       return;
     }
     if (key === "serverUrl" && typeof value === "string") {
-      await this.save({ ...this.data(), serverUrl: value.trim() });
+      await this.deps.save({ ...this.deps.data(), serverUrl: value.trim() });
       return;
     }
-    await this.save({ ...this.data(), [key]: value });
+    await this.deps.save({ ...this.deps.data(), [key]: value });
   }
 
-  private pluginDataItems(): SettingGroupItem[] {
-    const ids = this.pluginIds().filter((id) => id !== this.plugin.manifest.id);
-    if (ids.length === 0) return [{ name: t("settings.pluginDataNone") }];
-    return ids.map((id) => ({
-      name: id,
-      control: {
-        type: "dropdown",
-        key: `${PLUGIN_DATA_PREFIX}${id}`,
-        options: {
-          ask: t("pluginData.ask"),
-          sync: t("pluginData.sync"),
-          skip: t("pluginData.skip"),
-        },
+  private otherPluginIds(): string[] {
+    return this.deps.pluginIds().filter((id) => id !== this.plugin.manifest.id);
+  }
+
+  private pendingPluginData(): number {
+    const chosen = this.deps.shared().pluginDataSync;
+    return this.otherPluginIds().filter((id) => chosen[id] === undefined).length;
+  }
+
+  private codePluginsElsewhere(): string[] {
+    const installed = new Set(this.otherPluginIds());
+    return this.deps.shared().codeConfiguredPluginIds.filter((id) => !installed.has(id));
+  }
+
+  private pluginItems(): SettingDefinitionItem[] {
+    const ids = this.otherPluginIds();
+    if (ids.length === 0) {
+      return [{ type: "group", items: [{ name: t("settings.pluginDataNone") }] }];
+    }
+    const chosen = this.deps.shared().pluginDataSync;
+    const ordered = [
+      ...ids.filter((id) => chosen[id] === undefined),
+      ...ids.filter((id) => chosen[id] !== undefined),
+    ];
+    return [
+      {
+        type: "group",
+        heading: t("settings.pluginDataSync"),
+        items: [
+          { name: t("settings.pluginDataCaution") },
+          ...ordered.map(
+            (id): SettingGroupItem => ({
+              name: id,
+              control: {
+                type: "dropdown",
+                key: `${PLUGIN_DATA_PREFIX}${id}`,
+                options: {
+                  ask: t("pluginData.ask"),
+                  sync: t("pluginData.sync"),
+                  skip: t("pluginData.skip"),
+                },
+              },
+            }),
+          ),
+        ],
       },
-    }));
+      {
+        type: "group",
+        heading: t("settings.codePlugins"),
+        items: [
+          ...ids.map(
+            (id): SettingGroupItem => ({
+              name: id,
+              control: { type: "toggle", key: `${CODE_PLUGIN_PREFIX}${id}` },
+            }),
+          ),
+          {
+            name: t("settings.codePluginsElsewhere"),
+            control: { type: "textarea", key: "codeConfiguredElsewhere", rows: 3 },
+          },
+        ],
+      },
+    ];
+  }
+
+  private missingCredentials(): number {
+    const data = this.deps.data();
+    const secret = (name: string) => (name ? this.app.secretStorage.getSecret(name) : null);
+    return [
+      isAllowedServerUrl(data.serverUrl),
+      data.accessClientId.length > 0,
+      Boolean(secret(data.accessClientSecretName)),
+      Boolean(secret(data.deviceTokenName)),
+    ].filter((filled) => !filled).length;
+  }
+
+  private renderConnection(setting: Setting): void {
+    const summary = this.deps.connection();
+    setting.setName(
+      createFragment((fragment) => {
+        const icon = fragment.createSpan({
+          cls: summary.ok ? "obsttorte-connection is-ok" : "obsttorte-connection is-error",
+        });
+        setIcon(icon, summary.ok ? "circle-check" : "circle-x");
+        fragment.appendText(summary.title);
+      }),
+    );
+    setting.setDesc(summary.detail);
+    setting.addButton((button) =>
+      button.setButtonText(t("connection.check")).onClick(async () => {
+        button.setDisabled(true);
+        await this.deps.checkConnection();
+        this.update();
+      }),
+    );
+  }
+
+  private renderFixedExclusions(setting: Setting): void {
+    const config = this.app.vault.configDir;
+    setting.setDesc(
+      createFragment((fragment) => {
+        fragment.createDiv({
+          cls: "obsttorte-fixed-exclusions",
+          text: [
+            `${config}/plugins/${this.plugin.manifest.id}/`,
+            `${config}/workspace.json`,
+            `${config}/workspace-mobile.json`,
+            `${config}/workspaces.json`,
+            ".trash/",
+            ".DS_Store, Thumbs.db, desktop.ini",
+            "*.tmp, *.swp, ~$*, .#*",
+          ].join("\n"),
+        });
+      }),
+    );
   }
 
   private renderDevices(setting: Setting): void {
     setting.setDesc(t("view.loading"));
-    void this.listDevices().then((listing) => {
+    void this.deps.listDevices().then((listing) => {
       setting.setDesc(
         createFragment((fragment) => {
           fragment.createDiv({ text: t("settings.registeredDevicesDesc") });
@@ -494,20 +620,29 @@ export class ObsttorteSettingTab extends PluginSettingTab {
             return;
           }
           for (const device of listing.devices) {
+            const name =
+              device.id === listing.currentId
+                ? t("devices.current", { name: device.name })
+                : device.name;
             fragment.createDiv({
               text: device.revokedAt
-                ? t("devices.revoked", { name: device.name })
+                ? t("devices.revoked", { name })
                 : device.lastSeenAt
-                  ? t("devices.lastSeen", {
-                      name: device.name,
-                      time: formatDateTime(device.lastSeenAt),
-                    })
-                  : t("devices.neverSeen", { name: device.name }),
+                  ? t("devices.lastSeen", { name, time: formatDateTime(device.lastSeenAt) })
+                  : t("devices.neverSeen", { name }),
             });
           }
         }),
       );
     });
+  }
+
+  private async rebuildIndex(): Promise<void> {
+    const confirmed = await this.deps.confirm(
+      t("settings.rebuildIndexDesc"),
+      t("settings.rebuildApply"),
+    );
+    if (confirmed) await this.deps.rebuildIndex();
   }
 
   private secretSetting(
@@ -521,8 +656,8 @@ export class ObsttorteSettingTab extends PluginSettingTab {
       render: (setting) => {
         setting.addComponent((element) => {
           const secret = new SecretComponent(this.app, element);
-          secret.setValue(this.data()[key]);
-          secret.onChange((value) => this.save({ ...this.data(), [key]: value }));
+          secret.setValue(this.deps.data()[key]);
+          secret.onChange((value) => this.deps.save({ ...this.deps.data(), [key]: value }));
           return secret;
         });
       },

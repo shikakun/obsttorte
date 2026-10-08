@@ -47,6 +47,25 @@
   background: var(--background-modifier-error);
 }
 
+.obsttorte-connection {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-end: var(--size-2-2);
+}
+
+.obsttorte-connection svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.obsttorte-connection.is-ok {
+  color: var(--color-green);
+}
+
+.obsttorte-connection.is-error {
+  color: var(--text-error);
+}
+
 .obsttorte-fixed-exclusions {
   white-space: pre-wrap;
 }
